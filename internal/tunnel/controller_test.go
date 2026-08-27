@@ -64,8 +64,17 @@ func testPlan() Plan {
 		TunnelAddress:     netip.MustParsePrefix("10.5.0.2/32"),
 		TunnelMTU:         1420,
 		TunnelDNS:         []netip.Addr{netip.MustParseAddr("10.5.0.1")},
+		RoutePolicy:       RoutePolicyFullIPv4,
 		PeerFingerprint:   strings.Repeat("b", 64),
 	}
+}
+
+func scopedTestPlan() Plan {
+	plan := testPlan()
+	plan.RoutePolicy = RoutePolicyScopedIPv4
+	plan.TunnelDNS = nil
+	plan.ScopedRoutes = []netip.Prefix{netip.MustParsePrefix("10.250.0.0/24")}
+	return plan
 }
 
 func (environment *fakeEnvironment) action(name string, mutation func()) error {
@@ -284,6 +293,95 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 	}
 }
 
+func TestScopedConnectNeverTouchesDNSOrDefaultRoutes(t *testing.T) {
+	environment := newFakeEnvironment()
+	controller := withManagers(environment.controller(), environment)
+	controller.DNS = nil
+	plan := scopedTestPlan()
+	journal, err := controller.Connect(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Connect scoped: %v", err)
+	}
+	if journal.Phase != PhaseConnected || len(environment.routes) != 2 || environment.dnsApplied {
+		t.Fatalf("unexpected scoped state: phase=%s routes=%#v dns=%v", journal.Phase, environment.routes, environment.dnsApplied)
+	}
+	wantApplyOrder := []string{
+		"device.create",
+		"route.add:203.0.113.10/32",
+		"route.add:10.250.0.0/24",
+		"verify",
+	}
+	if got := selectedEvents(environment.events, "device.create", "route.add:", "dns.", "verify"); !reflect.DeepEqual(got, wantApplyOrder) {
+		t.Fatalf("scoped apply order = %#v, want %#v", got, wantApplyOrder)
+	}
+
+	environment.events = nil
+	if err := controller.Disconnect(context.Background(), plan.SessionID, plan.OwnerUID); err != nil {
+		t.Fatalf("Disconnect scoped: %v", err)
+	}
+	wantRollbackOrder := []string{
+		"route.remove:10.250.0.0/24",
+		"route.remove:203.0.113.10/32",
+		"device.delete",
+	}
+	if got := selectedEvents(environment.events, "dns.", "route.remove:", "device.delete"); !reflect.DeepEqual(got, wantRollbackOrder) {
+		t.Fatalf("scoped rollback order = %#v, want %#v", got, wantRollbackOrder)
+	}
+	assertClean(t, environment)
+}
+
+func TestScopedConnectRollsBackEveryMutationAndJournalBoundary(t *testing.T) {
+	for _, action := range []string{
+		"device.create",
+		"route.add:203.0.113.10/32",
+		"route.add:10.250.0.0/24",
+		"verify",
+	} {
+		t.Run(action, func(t *testing.T) {
+			environment := newFakeEnvironment()
+			environment.failAction = action
+			controller := withManagers(environment.controller(), environment)
+			controller.DNS = nil
+			if _, err := controller.Connect(context.Background(), scopedTestPlan()); err == nil {
+				t.Fatal("scoped Connect unexpectedly succeeded")
+			}
+			assertClean(t, environment)
+		})
+	}
+	for failure := 1; failure <= 7; failure++ {
+		t.Run(fmt.Sprintf("update_%02d", failure), func(t *testing.T) {
+			environment := newFakeEnvironment()
+			environment.failUpdateNumber = failure
+			controller := withManagers(environment.controller(), environment)
+			controller.DNS = nil
+			if _, err := controller.Connect(context.Background(), scopedTestPlan()); err == nil {
+				t.Fatal("scoped Connect unexpectedly succeeded")
+			}
+			assertClean(t, environment)
+		})
+	}
+}
+
+type cancellingVerifier struct{ cancel context.CancelFunc }
+
+func (verifier cancellingVerifier) Verify(ctx context.Context, _ Journal) error {
+	verifier.cancel()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestCancelledVerificationUsesIndependentRollbackContext(t *testing.T) {
+	environment := newFakeEnvironment()
+	controller := withManagers(environment.controller(), environment)
+	controller.DNS = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	controller.Verifier = cancellingVerifier{cancel: cancel}
+	if _, err := controller.Connect(ctx, scopedTestPlan()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Connect error = %v, want cancellation", err)
+	}
+	assertClean(t, environment)
+}
+
 func TestConnectRollsBackAfterEveryMutationFailure(t *testing.T) {
 	actions := []string{
 		"device.create",
@@ -458,6 +556,7 @@ func assertClean(t *testing.T, environment *fakeEnvironment) {
 func cloneJournal(journal Journal) Journal {
 	copy := journal
 	copy.Plan.TunnelDNS = slices.Clone(journal.Plan.TunnelDNS)
+	copy.Plan.ScopedRoutes = slices.Clone(journal.Plan.ScopedRoutes)
 	copy.DNSBefore.Services = slices.Clone(journal.DNSBefore.Services)
 	for index := range copy.DNSBefore.Services {
 		copy.DNSBefore.Services[index].Servers = slices.Clone(journal.DNSBefore.Services[index].Servers)

@@ -32,6 +32,10 @@ type RuntimeFactory interface {
 	Create(int) (Runtime, error)
 }
 
+type AddressConfigurer interface {
+	Apply(context.Context, tunnel.InterfaceAddress) error
+}
+
 type Runtime interface {
 	Name() string
 	Configure(tunnel.DeviceSpec, *helperproto.DeviceSecrets) error
@@ -50,9 +54,11 @@ type Snapshot struct {
 // ownership. If the process dies, the utun file descriptor closes and macOS
 // removes the interface.
 type Manager struct {
-	Secrets SecretSource
-	Factory RuntimeFactory
-	PID     int
+	Secrets    SecretSource
+	Factory    RuntimeFactory
+	Addresses  AddressConfigurer
+	DeviceOnly bool
+	PID        int
 
 	mu       sync.Mutex
 	sessions map[string]ownedRuntime
@@ -69,6 +75,9 @@ func (manager *Manager) Create(ctx context.Context, spec tunnel.DeviceSpec) (tun
 	}
 	if manager.Secrets == nil || manager.Factory == nil {
 		return tunnel.DeviceHandle{}, errors.New("WireGuard backend is incomplete")
+	}
+	if manager.Addresses == nil && !manager.DeviceOnly {
+		return tunnel.DeviceHandle{}, errors.New("WireGuard address configurer is missing")
 	}
 	pid := manager.PID
 	if pid == 0 {
@@ -102,6 +111,11 @@ func (manager *Manager) Create(ctx context.Context, spec tunnel.DeviceSpec) (tun
 		}
 		if err := created.Up(); err != nil {
 			return fmt.Errorf("bring userspace WireGuard runtime up: %w", err)
+		}
+		if manager.Addresses != nil {
+			if err := manager.Addresses.Apply(ctx, tunnel.InterfaceAddress{Interface: created.Name(), Prefix: spec.Address}); err != nil {
+				return fmt.Errorf("configure userspace WireGuard address: %w", err)
+			}
 		}
 		return nil
 	})

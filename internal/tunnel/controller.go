@@ -16,6 +16,8 @@ var (
 	ErrRollback        = errors.New("tunnel rollback incomplete")
 )
 
+const rollbackTimeout = 10 * time.Second
+
 type JournalStore interface {
 	Create(context.Context, Journal) error
 	Update(context.Context, Journal) error
@@ -73,10 +75,11 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 	if err := plan.Validate(); err != nil {
 		return Journal{}, fmt.Errorf("invalid tunnel plan: %w", err)
 	}
-	if err := controller.validate(); err != nil {
+	if err := controller.validate(plan); err != nil {
 		return Journal{}, err
 	}
 	plan.TunnelDNS = slices.Clone(plan.TunnelDNS)
+	plan.ScopedRoutes = slices.Clone(plan.ScopedRoutes)
 
 	release, err := controller.Locks.Acquire(ctx, plan.SessionID)
 	if err != nil {
@@ -98,9 +101,12 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 	if err := validatePhysicalPreimage(plan, routeBefore); err != nil {
 		return Journal{}, err
 	}
-	dnsBefore, err := controller.DNS.Snapshot(ctx)
-	if err != nil {
-		return Journal{}, fmt.Errorf("capture DNS pre-image: %w", err)
+	var dnsBefore DNSSnapshot
+	if plan.UsesDNS() {
+		dnsBefore, err = controller.DNS.Snapshot(ctx)
+		if err != nil {
+			return Journal{}, fmt.Errorf("capture DNS pre-image: %w", err)
+		}
 	}
 
 	now := controller.now()
@@ -124,7 +130,9 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 	}
 
 	fail := func(connectErr error) (Journal, error) {
-		rollbackErr := controller.rollback(ctx, &journal)
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+		defer cancel()
+		rollbackErr := controller.rollback(rollbackCtx, &journal)
 		if rollbackErr != nil {
 			return journal, errors.Join(connectErr, rollbackErr)
 		}
@@ -165,15 +173,17 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 		}
 	}
 
-	dnsIndex, err := controller.recordIntent(ctx, &journal, Entry{Kind: StepDNS, Status: StepPlanned})
-	if err != nil {
-		return fail(err)
-	}
-	if err := controller.DNS.Apply(ctx, plan.DNSConfig()); err != nil {
-		return fail(fmt.Errorf("apply tunnel DNS: %w", err))
-	}
-	if err := controller.markApplied(ctx, &journal, dnsIndex); err != nil {
-		return fail(err)
+	if plan.UsesDNS() {
+		dnsIndex, err := controller.recordIntent(ctx, &journal, Entry{Kind: StepDNS, Status: StepPlanned})
+		if err != nil {
+			return fail(err)
+		}
+		if err := controller.DNS.Apply(ctx, plan.DNSConfig()); err != nil {
+			return fail(fmt.Errorf("apply tunnel DNS: %w", err))
+		}
+		if err := controller.markApplied(ctx, &journal, dnsIndex); err != nil {
+			return fail(err)
+		}
 	}
 
 	if err := controller.Verifier.Verify(ctx, journal); err != nil {
@@ -189,7 +199,9 @@ func (controller Controller) Disconnect(ctx context.Context, sessionID string, o
 	if !ValidSessionID(sessionID) || ownerUID < 0 {
 		return errors.New("invalid tunnel session identity")
 	}
-	if err := controller.validate(); err != nil {
+	// A recovered journal determines whether DNS is required. Validate the
+	// common dependencies now and the policy-specific dependency after load.
+	if err := controller.validateDisconnect(); err != nil {
 		return err
 	}
 	release, err := controller.Locks.Acquire(ctx, sessionID)
@@ -214,6 +226,9 @@ func (controller Controller) Disconnect(ctx context.Context, sessionID string, o
 	}
 	if journal.OwnerUID != ownerUID {
 		return errors.New("tunnel journal owner does not match requester")
+	}
+	if journal.Plan.UsesDNS() && controller.DNS == nil {
+		return errors.New("tunnel controller DNS dependency is incomplete")
 	}
 	if journal.Phase == PhaseDisconnected {
 		return controller.Journals.Delete(ctx, sessionID)
@@ -331,10 +346,27 @@ func (controller Controller) rollback(ctx context.Context, journal *Journal) err
 	return nil
 }
 
-func (controller Controller) validate() error {
+func (controller Controller) validate(plan Plan) error {
+	if err := controller.validateCommon(); err != nil {
+		return err
+	}
+	if plan.UsesDNS() && controller.DNS == nil {
+		return errors.New("tunnel controller DNS dependency is incomplete")
+	}
+	return nil
+}
+
+func (controller Controller) validateCommon() error {
 	if controller.Journals == nil || controller.Locks == nil || controller.Conflicts == nil ||
-		controller.Devices == nil || controller.Routes == nil || controller.DNS == nil || controller.Verifier == nil {
+		controller.Devices == nil || controller.Routes == nil || controller.Verifier == nil {
 		return errors.New("tunnel controller dependencies are incomplete")
+	}
+	return nil
+}
+
+func (controller Controller) validateDisconnect() error {
+	if controller.Journals == nil || controller.Locks == nil || controller.Devices == nil || controller.Routes == nil {
+		return errors.New("tunnel rollback dependencies are incomplete")
 	}
 	return nil
 }

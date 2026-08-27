@@ -43,6 +43,16 @@ type fakeFactory struct {
 
 func (factory fakeFactory) Create(int) (Runtime, error) { return factory.runtime, factory.err }
 
+type fakeAddressConfigurer struct {
+	addresses []tunnel.InterfaceAddress
+	err       error
+}
+
+func (configurer *fakeAddressConfigurer) Apply(_ context.Context, address tunnel.InterfaceAddress) error {
+	configurer.addresses = append(configurer.addresses, address)
+	return configurer.err
+}
+
 func TestManagerOwnsCreatesSnapshotsAndDeletesExactSession(t *testing.T) {
 	secrets := testSecrets()
 	peerDigest := sha256.Sum256(secrets.PeerPublicKey[:])
@@ -51,7 +61,7 @@ func TestManagerOwnsCreatesSnapshotsAndDeletesExactSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &fakeRuntime{name: "utun9", snapshot: Snapshot{LastHandshake: time.Unix(100, 0), Transmitted: 92, Received: 148}}
-	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}, PID: 4321}
+	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}, DeviceOnly: true, PID: 4321}
 
 	handle, err := manager.Create(context.Background(), testSpec(hex.EncodeToString(peerDigest[:])))
 	if err != nil {
@@ -90,7 +100,7 @@ func TestManagerRejectsFingerprintBeforeCreatingRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &fakeRuntime{name: "utun9"}
-	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}}
+	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}, DeviceOnly: true}
 	_, err = manager.Create(context.Background(), testSpec(string(make([]byte, 64))))
 	if err == nil {
 		t.Fatal("expected fingerprint rejection")
@@ -108,10 +118,45 @@ func TestManagerClosesPartiallyConfiguredRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &fakeRuntime{name: "utun9", configureErr: errors.New("injected")}
-	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}}
+	manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}, DeviceOnly: true}
 	_, err = manager.Create(context.Background(), testSpec(hex.EncodeToString(peerDigest[:])))
 	if err == nil || runtime.closed != 1 {
 		t.Fatalf("partial runtime was not closed: err=%v closes=%d", err, runtime.closed)
+	}
+}
+
+func TestManagerConfiguresAddressAndClosesOnAddressFailure(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[failure], func(t *testing.T) {
+			secrets := testSecrets()
+			peerDigest := sha256.Sum256(secrets.PeerPublicKey[:])
+			source, err := NewOneShotSecrets(testSession, &secrets)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := &fakeRuntime{name: "utun9"}
+			addresses := &fakeAddressConfigurer{}
+			if failure {
+				addresses.err = errors.New("injected address failure")
+			}
+			manager := &Manager{Secrets: source, Factory: fakeFactory{runtime: runtime}, Addresses: addresses}
+			handle, createErr := manager.Create(context.Background(), testSpec(hex.EncodeToString(peerDigest[:])))
+			if len(addresses.addresses) != 1 || addresses.addresses[0].Interface != "utun9" || addresses.addresses[0].Prefix.String() != "10.5.0.2/32" {
+				t.Fatalf("address calls = %#v", addresses.addresses)
+			}
+			if failure {
+				if createErr == nil || runtime.closed != 1 {
+					t.Fatalf("address failure was not closed: err=%v closes=%d", createErr, runtime.closed)
+				}
+				return
+			}
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			if err := manager.DeleteOwned(context.Background(), testSession, &handle); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

@@ -38,4 +38,4 @@ After the successful result:
 
 ## Next gate
 
-Gate 3 may configure one synthetic interface address and one scoped peer-subnet route, never a default route. It must capture the host pre-image, verify endpoint reachability stays outside the tunnel, inject cancellation/process death, repeat teardown, and prove exact restoration before any full-tunnel work is considered.
+Gate 3's offline implementation is recorded in ADR 0005. Its live validation may configure one synthetic interface address and one scoped peer-subnet route, never a default route. It must capture the host pre-image, verify endpoint reachability stays outside the tunnel, inject cancellation/process death, repeat teardown, and prove exact restoration before any full-tunnel work is considered.

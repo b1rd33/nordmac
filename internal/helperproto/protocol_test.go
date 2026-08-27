@@ -20,6 +20,7 @@ func protocolPlan() tunnel.Plan {
 		TunnelAddress:     netip.MustParsePrefix("10.5.0.2/32"),
 		TunnelMTU:         1420,
 		TunnelDNS:         []netip.Addr{netip.MustParseAddr("10.5.0.1")},
+		RoutePolicy:       tunnel.RoutePolicyFullIPv4,
 		PeerFingerprint:   strings.Repeat("b", 64),
 	}
 }

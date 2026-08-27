@@ -1,0 +1,47 @@
+# ADR 0005: require a scoped-route gate before any default route
+
+- Status: accepted; offline implementation complete, live validation pending
+- Date: 2026-08-27
+
+## Decision
+
+Journal schema 2 records an explicit route policy. `scoped_ipv4` accepts only one to four canonical private IPv4 prefixes between `/16` and `/32`, rejects DNS, rejects public and default routes, and rejects a prefix containing the physical gateway or WireGuard endpoint. `full_ipv4` preserves the future split-default and DNS transaction but remains unreachable from the public CLI.
+
+Schema 1 journals fail closed instead of being guessed or migrated. No live nordmac tunnel existed when schema 2 was introduced, so there is no legitimate schema 1 recovery state to preserve.
+
+The transaction applies resources in this order:
+
+1. create the owned userspace `utun`, configure WireGuard, bring it up, and assign its owned IPv4 `/32`;
+2. pin the WireGuard endpoint through the captured physical gateway and interface;
+3. add only the approved scoped route through the `utun`;
+4. verify both exact routes, ping the controlled peer, and require a fresh handshake with bidirectional counters.
+
+Rollback uses the reverse order. Cancellation during verification gets a new bounded cleanup context rather than reusing the cancelled request context. A route is removed only when an exact lookup still matches the journaled interface and, for the endpoint pin, gateway. Missing routes are treated idempotently; changed routes retain `rollback_required` evidence.
+
+## Darwin boundary
+
+The adapters invoke fixed absolute binaries with validated argument arrays and no shell:
+
+- `/sbin/ifconfig <utun> inet <private-address>/32 alias`
+- `/sbin/route -n add|delete ...`
+- `/sbin/ping -n -c 1 -W 1000 <private-peer>`
+
+The route adapter parses numeric `route get` output, rejects non-contiguous masks, refuses a pre-existing exact destination, and compares current ownership before deletion. The endpoint host route is intentionally unscoped through the captured gateway: `wireguard-go` uses an unbound UDP socket on Darwin, so an interface-scoped route might not be selected. The adapter verifies that macOS resolves the installed host route through the captured physical interface before continuing. macOS routes have no nordmac ownership tag, so a foreign actor replacing a route with byte-for-byte identical fields cannot be distinguished; the short gate window and journal lock reduce but cannot eliminate that platform limitation.
+
+## Harness and crash recovery
+
+`cmd/nordmac-scoped-harness` is excluded from GoReleaser. It requires an explicit acknowledgement, session id, literal non-loopback endpoint, tunnel `/32`, private peer address, one containing private scoped prefix, and a duration of at most 30 seconds. It reads keys only through the fixed binary secret frame.
+
+State is stored at the fixed, validated path `/private/tmp/nordmac-gate3-<session>`. Normal cleanup removes it only after the journal is gone. `--recover-session <session>` needs no keys and replays journaled route cleanup after a crash; incomplete cleanup retains the journal instead of deleting evidence.
+
+## Live gate still required
+
+No address or route command has been executed by this implementation slice. Before running Gate 3, require approval naming:
+
+- the controlled non-loopback peer endpoint;
+- `10.250.0.2/32` as the temporary host tunnel address;
+- `10.250.0.1` as the temporary peer address;
+- `10.250.0.0/24` as the only temporary route;
+- one session id, a maximum 30-second window, administrator authorization, and permission for deliberate signal/process-death cleanup tests.
+
+The approval must continue to forbid default routes, DNS, PF, Nord credentials, persistent software, and any traffic outside the controlled endpoint and synthetic subnet.

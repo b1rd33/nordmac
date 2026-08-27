@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const JournalSchemaVersion = 1
+const JournalSchemaVersion = 2
 
 var (
 	sessionIDPattern   = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -42,6 +42,13 @@ const (
 	StepDNS           StepKind = "dns"
 )
 
+type RoutePolicy string
+
+const (
+	RoutePolicyScopedIPv4 RoutePolicy = "scoped_ipv4"
+	RoutePolicyFullIPv4   RoutePolicy = "full_ipv4"
+)
+
 type StepStatus string
 
 const (
@@ -51,7 +58,8 @@ const (
 )
 
 // Plan is the non-secret, fully validated input accepted by the future helper.
-// Phase 2 intentionally supports only an IPv4 full-tunnel plan.
+// IPv6 remains deliberately unsupported. ScopedIPv4 is the only policy allowed
+// by the Gate 3 harness; FullIPv4 remains approval-gated future work.
 type Plan struct {
 	SessionID         string         `json:"session_id"`
 	OwnerUID          int            `json:"owner_uid"`
@@ -61,6 +69,8 @@ type Plan struct {
 	TunnelAddress     netip.Prefix   `json:"tunnel_address"`
 	TunnelMTU         int            `json:"tunnel_mtu"`
 	TunnelDNS         []netip.Addr   `json:"tunnel_dns"`
+	RoutePolicy       RoutePolicy    `json:"route_policy"`
+	ScopedRoutes      []netip.Prefix `json:"scoped_routes,omitempty"`
 	PeerFingerprint   string         `json:"peer_public_key_fingerprint"`
 }
 
@@ -83,14 +93,14 @@ func (plan Plan) Validate() error {
 	if !plan.TunnelAddress.IsValid() || !plan.TunnelAddress.Addr().Is4() || plan.TunnelAddress != plan.TunnelAddress.Masked() {
 		return errors.New("tunnel address must be a canonical IPv4 prefix")
 	}
-	if plan.TunnelAddress.Bits() < 8 || plan.TunnelAddress.Bits() > 32 {
-		return errors.New("tunnel address prefix length is outside the supported range")
+	if plan.TunnelAddress.Bits() != 32 {
+		return errors.New("tunnel address must be an IPv4 /32")
 	}
 	if plan.TunnelMTU < 1280 || plan.TunnelMTU > 9000 {
 		return errors.New("tunnel MTU must be between 1280 and 9000")
 	}
-	if len(plan.TunnelDNS) == 0 || len(plan.TunnelDNS) > 4 {
-		return errors.New("one to four tunnel DNS servers are required")
+	if err := plan.validatePolicy(); err != nil {
+		return err
 	}
 	seenDNS := map[netip.Addr]struct{}{}
 	for _, server := range plan.TunnelDNS {
@@ -121,10 +131,55 @@ func (plan Plan) EndpointRoute() Route {
 }
 
 func (plan Plan) TunnelRoutes() []Route {
+	if plan.RoutePolicy == RoutePolicyScopedIPv4 {
+		routes := make([]Route, len(plan.ScopedRoutes))
+		for index, prefix := range plan.ScopedRoutes {
+			routes[index] = Route{Destination: prefix}
+		}
+		return routes
+	}
 	return []Route{
 		{Destination: netip.MustParsePrefix("0.0.0.0/1")},
 		{Destination: netip.MustParsePrefix("128.0.0.0/1")},
 	}
+}
+
+func (plan Plan) UsesDNS() bool { return plan.RoutePolicy == RoutePolicyFullIPv4 }
+
+func (plan Plan) validatePolicy() error {
+	switch plan.RoutePolicy {
+	case RoutePolicyFullIPv4:
+		if len(plan.ScopedRoutes) != 0 {
+			return errors.New("full IPv4 policy must not contain scoped routes")
+		}
+		if len(plan.TunnelDNS) == 0 || len(plan.TunnelDNS) > 4 {
+			return errors.New("full IPv4 policy requires one to four DNS servers")
+		}
+	case RoutePolicyScopedIPv4:
+		if len(plan.TunnelDNS) != 0 {
+			return errors.New("scoped IPv4 policy must not change DNS")
+		}
+		if len(plan.ScopedRoutes) == 0 || len(plan.ScopedRoutes) > 4 {
+			return errors.New("scoped IPv4 policy requires one to four routes")
+		}
+		seen := map[netip.Prefix]struct{}{}
+		for _, prefix := range plan.ScopedRoutes {
+			if !prefix.IsValid() || !prefix.Addr().Is4() || prefix != prefix.Masked() ||
+				!prefix.Addr().IsPrivate() || prefix.Bits() < 16 || prefix.Bits() > 32 {
+				return errors.New("scoped routes must be canonical private IPv4 prefixes between /16 and /32")
+			}
+			if prefix.Contains(plan.Endpoint.Addr()) || prefix.Contains(plan.PhysicalGateway) {
+				return errors.New("scoped routes must not contain the endpoint or physical gateway")
+			}
+			if _, exists := seen[prefix]; exists {
+				return errors.New("scoped routes must be unique")
+			}
+			seen[prefix] = struct{}{}
+		}
+	default:
+		return fmt.Errorf("unsupported route policy %q", plan.RoutePolicy)
+	}
+	return nil
 }
 
 func (plan Plan) DNSConfig() DNSConfig {
@@ -183,6 +238,21 @@ type DeviceHandle struct {
 	OwnerPID  int    `json:"owner_pid"`
 }
 
+type InterfaceAddress struct {
+	Interface string       `json:"interface"`
+	Prefix    netip.Prefix `json:"prefix"`
+}
+
+func (address InterfaceAddress) Validate() error {
+	if !interfacePattern.MatchString(address.Interface) {
+		return errors.New("interface address has an invalid interface")
+	}
+	if !address.Prefix.IsValid() || !address.Prefix.Addr().Is4() || address.Prefix.Bits() != 32 {
+		return errors.New("interface address must be an IPv4 /32")
+	}
+	return nil
+}
+
 func (handle DeviceHandle) Validate() error {
 	if !interfacePattern.MatchString(handle.Interface) || handle.OwnerPID <= 0 {
 		return errors.New("device handle is invalid")
@@ -234,10 +304,10 @@ func (journal Journal) Validate() error {
 			return fmt.Errorf("invalid journal device: %w", err)
 		}
 	}
-	if len(journal.Entries) > 5 {
+	expectedKinds := journal.expectedKinds()
+	if len(journal.Entries) > len(expectedKinds) {
 		return errors.New("journal contains too many transaction entries")
 	}
-	expectedKinds := []StepKind{StepDevice, StepEndpointRoute, StepTunnelRoute, StepTunnelRoute, StepDNS}
 	for index, entry := range journal.Entries {
 		if !validStep(entry.Kind) || !validStepStatus(entry.Status) {
 			return fmt.Errorf("invalid journal entry %d", index)
@@ -273,7 +343,7 @@ func (journal Journal) Validate() error {
 			return errors.New("journal tunnel routes are missing their device handle")
 		}
 		expectedRoutes := journal.Plan.TunnelRoutes()
-		for index := 2; index < min(len(journal.Entries), 4); index++ {
+		for index := 2; index < min(len(journal.Entries), 2+len(expectedRoutes)); index++ {
 			expected := expectedRoutes[index-2]
 			expected.Interface = journal.Device.Interface
 			if *journal.Entries[index].Route != expected {
@@ -301,6 +371,17 @@ func (journal Journal) Validate() error {
 	return nil
 }
 
+func (journal Journal) expectedKinds() []StepKind {
+	kinds := []StepKind{StepDevice, StepEndpointRoute}
+	for range journal.Plan.TunnelRoutes() {
+		kinds = append(kinds, StepTunnelRoute)
+	}
+	if journal.Plan.UsesDNS() {
+		kinds = append(kinds, StepDNS)
+	}
+	return kinds
+}
+
 func validatePreimages(journal Journal) error {
 	if err := journal.RouteBefore.Default.Validate(); err != nil {
 		return fmt.Errorf("invalid route pre-image: %w", err)
@@ -309,6 +390,12 @@ func validatePreimages(journal Journal) error {
 		journal.RouteBefore.Default.Gateway != journal.Plan.PhysicalGateway ||
 		journal.RouteBefore.Default.Interface != journal.Plan.PhysicalInterface {
 		return errors.New("route pre-image does not match the planned physical route")
+	}
+	if !journal.Plan.UsesDNS() {
+		if journal.DNSBefore.Revision != "" || len(journal.DNSBefore.Services) != 0 {
+			return errors.New("scoped journal contains a DNS pre-image")
+		}
+		return nil
 	}
 	if len(journal.DNSBefore.Revision) == 0 || len(journal.DNSBefore.Revision) > 128 || hasControl(journal.DNSBefore.Revision) {
 		return errors.New("DNS pre-image revision is invalid")

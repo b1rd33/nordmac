@@ -63,7 +63,7 @@ func run() (retErr error) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	manager := &wgbackend.Manager{Secrets: source, Factory: wgbackend.UserspaceFactory{}}
+	manager := &wgbackend.Manager{Secrets: source, Factory: wgbackend.UserspaceFactory{}, DeviceOnly: true}
 	spec := tunnel.DeviceSpec{
 		SessionID:       sessionID,
 		Address:         netip.MustParsePrefix("10.255.255.254/32"),
