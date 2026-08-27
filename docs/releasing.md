@@ -35,12 +35,14 @@ Verify both snapshot archives, checksums, embedded versions, and the generated H
 ## Publishing v0.1.0
 
 ```bash
-git tag -s v0.1.0 -m "nordmac v0.1.0"
+git tag -a v0.1.0 -m "nordmac v0.1.0"
 git push origin main
 git push origin v0.1.0
 ```
 
 The tag push triggers `.github/workflows/release.yml`. Do not create or push the tag until the public repository, tap token, and snapshot checks are resolved. A failed tag workflow must be repaired without moving or reusing a published tag.
+
+Use a signed tag when a signing key is configured and its public key is published. The initial `v0.1.0` tag is annotated because this development environment had no configured signing key; do not claim it is cryptographically signed.
 
 After the release workflow and tap commit succeed:
 
