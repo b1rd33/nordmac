@@ -33,6 +33,12 @@ On 2026-08-27, the independently written files under `internal/credentials`, `in
 
 The candidate endpoint path, bearer-token transport, and response field names are interoperability facts observed during read-only review, not copied implementation. Phase 2 still imports only the Go standard library and nordmac's own packages.
 
+## Phase 2 transaction-core audit
+
+On 2026-08-27, the independently written files under `internal/tunnel`, `internal/state`, and `internal/helperproto` were compared with both NordSecurity/nordvpn-linux at commit `b20a74cd61f030dc160a251755bdfe30a2a2f2c4` and WireGuard/wireguard-go at commit `ecfc5a8d54462e18e13c72173e2623d16d8e25a0`. The comparison checked 386 unique, non-comment nordmac lines of at least 60 characters and found zero exact matches against either codebase. Distinctive identifiers—including `JournalSchemaVersion`, `RestoreIfOwned`, `SecretChannelVersion`, `DecodeRequest`, and `PeerFingerprint`—also had zero matches.
+
+The transaction order, route prefixes, WireGuard key sizes, and `utun` constraints are interoperability and operating-system facts. No Nord or WireGuard implementation was copied. `wireguard-go` remains a reviewed future MIT-licensed dependency candidate; it has not been added to nordmac's module graph.
+
 This comparison is evidence of independent authorship, not a legal opinion. Future phases must repeat provenance and license review before adding any tunnel implementation or third-party dependency.
 
 ## Names and affiliation
