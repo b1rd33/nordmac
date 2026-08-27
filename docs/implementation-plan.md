@@ -213,6 +213,8 @@ Possible deliverables:
 
 Phase 2 remains Nord-network-free: no Nord credential use and no Nord tunnel attempt. It is complete only when the controlled peer can connect, verify, disconnect, and restore the recorded route/DNS pre-image repeatedly, including injected failure cases.
 
+Progress on 2026-08-27: [ADR 0002](adr/0002-authentication-contract.md) records that Nord officially supports account-generated tokens for its own headless Linux client, while the credential exchange used by that client remains an undocumented internal contract for nordmac. A narrow macOS Keychain adapter, secret-store interface, and quarantined candidate provisioning client were added with synthetic runner and local-server tests. Real `login`, authenticated Nord requests, and live Keychain access remain disabled pending the ADR's approval gate.
+
 Decision gate B: root helper/raw `utun` versus signed Network Extension, based on crash, roaming, DNS, and coexistence evidence.
 
 ### Phase 3 — minimal Nord live tunnel PoC
