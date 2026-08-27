@@ -66,24 +66,3 @@ release:
     name: nordmac
   draft: false
   prerelease: auto
-
-homebrew_casks:
-  - name: nordmac
-    ids:
-      - nordmac
-    binaries:
-      - nordmac
-    repository:
-      owner: b1rd33
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    url:
-      verified: github.com/b1rd33/nordmac
-    homepage: "https://github.com/b1rd33/nordmac"
-    description: "Read-only NordVPN location and NordLynx server recommendation CLI for macOS"
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nordmac"]
-          end

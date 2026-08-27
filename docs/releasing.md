@@ -6,7 +6,7 @@
 - GoReleaser v2 builds unsigned, static macOS binaries for Apple Silicon and Intel;
 - release archives are named `nordmac_<version>_darwin_<arch>.tar.gz`;
 - GitHub Release contains both archives and `checksums.txt`;
-- GoReleaser updates `Casks/nordmac.rb` in `b1rd33/homebrew-tap` with per-architecture URLs and SHA-256 values;
+- the maintainer updates `Casks/nordmac.rb` in `b1rd33/homebrew-tap` from the verified release assets and per-architecture SHA-256 values;
 - the cask installs the precompiled `nordmac` binary and applies the documented quarantine-removal hook required for an unsigned personal CLI;
 - release verification runs `nordmac --version` without making an API request.
 
@@ -14,7 +14,7 @@
 
 1. Create `b1rd33/nordmac` and add it as `origin`.
 2. Create it as a public repository so Homebrew can download release assets without authentication.
-3. Add repository secret `HOMEBREW_TAP_TOKEN`, using a fine-grained token with `Contents: write` only for `b1rd33/homebrew-tap`.
+3. For automated future tap publication, add `HOMEBREW_TAP_TOKEN` using a fine-grained token with `Contents: write` only for `b1rd33/homebrew-tap`. The initial release updates the tap locally and does not delegate a broad OAuth token to Actions.
 4. Keep the MIT license and source-provenance record in every release archive.
 5. Push `main` and confirm the CI workflow passes.
 
@@ -40,7 +40,7 @@ git push origin main
 git push origin v0.1.0
 ```
 
-The tag push triggers `.github/workflows/release.yml`. Do not create or push the tag until the public repository, tap token, and snapshot checks are resolved. A failed tag workflow must be repaired without moving or reusing a published tag.
+The tag push triggers `.github/workflows/release.yml`. Do not create or push the tag until the public repository and snapshot checks are resolved. A failed tag workflow must be repaired without moving or reusing a published tag.
 
 Use a signed tag when a signing key is configured and its public key is published. The initial `v0.1.0` tag is annotated because this development environment had no configured signing key; do not claim it is cryptographically signed.
 
