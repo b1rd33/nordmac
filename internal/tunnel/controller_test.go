@@ -262,8 +262,8 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 	}
 
 	wantApplyOrder := []string{
-		"device.create",
 		"route.add:203.0.113.10/32",
+		"device.create",
 		"route.add:0.0.0.0/1",
 		"route.add:128.0.0.0/1",
 		"dns.apply",
@@ -281,8 +281,8 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 		"dns.restore",
 		"route.remove:128.0.0.0/1",
 		"route.remove:0.0.0.0/1",
-		"route.remove:203.0.113.10/32",
 		"device.delete",
+		"route.remove:203.0.113.10/32",
 	}
 	if got := selectedEvents(environment.events, "dns.restore", "route.remove:", "device.delete"); !reflect.DeepEqual(got, wantRollbackOrder) {
 		t.Fatalf("rollback order = %#v, want %#v", got, wantRollbackOrder)
@@ -306,8 +306,8 @@ func TestScopedConnectNeverTouchesDNSOrDefaultRoutes(t *testing.T) {
 		t.Fatalf("unexpected scoped state: phase=%s routes=%#v dns=%v", journal.Phase, environment.routes, environment.dnsApplied)
 	}
 	wantApplyOrder := []string{
-		"device.create",
 		"route.add:203.0.113.10/32",
+		"device.create",
 		"route.add:10.250.0.0/24",
 		"verify",
 	}
@@ -321,8 +321,8 @@ func TestScopedConnectNeverTouchesDNSOrDefaultRoutes(t *testing.T) {
 	}
 	wantRollbackOrder := []string{
 		"route.remove:10.250.0.0/24",
-		"route.remove:203.0.113.10/32",
 		"device.delete",
+		"route.remove:203.0.113.10/32",
 	}
 	if got := selectedEvents(environment.events, "dns.", "route.remove:", "device.delete"); !reflect.DeepEqual(got, wantRollbackOrder) {
 		t.Fatalf("scoped rollback order = %#v, want %#v", got, wantRollbackOrder)

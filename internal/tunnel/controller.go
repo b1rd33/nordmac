@@ -139,6 +139,14 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 		return journal, connectErr
 	}
 
+	// Pin the peer endpoint before starting WireGuard. Bringing the device up can
+	// immediately emit a handshake and cause Darwin to create a cloned host-route
+	// cache entry, which would race the owned endpoint route below.
+	endpointRoute := plan.EndpointRoute()
+	if err := controller.applyRoute(ctx, &journal, StepEndpointRoute, endpointRoute); err != nil {
+		return fail(err)
+	}
+
 	deviceEntry := Entry{Kind: StepDevice, Status: StepPlanned}
 	deviceIndex, err := controller.recordIntent(ctx, &journal, deviceEntry)
 	if err != nil {
@@ -162,10 +170,6 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 		return fail(err)
 	}
 
-	endpointRoute := plan.EndpointRoute()
-	if err := controller.applyRoute(ctx, &journal, StepEndpointRoute, endpointRoute); err != nil {
-		return fail(err)
-	}
 	for _, route := range plan.TunnelRoutes() {
 		route.Interface = device.Interface
 		if err := controller.applyRoute(ctx, &journal, StepTunnelRoute, route); err != nil {

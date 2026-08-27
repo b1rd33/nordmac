@@ -329,13 +329,13 @@ func (journal Journal) Validate() error {
 			return errors.New("connecting journal contains a rolled-back entry")
 		}
 	}
-	if len(journal.Entries) > 0 && journal.Entries[0].Status == StepApplied && journal.Device == nil {
+	if len(journal.Entries) > 1 && journal.Entries[1].Status == StepApplied && journal.Device == nil {
 		return errors.New("applied device entry is missing its handle")
 	}
-	if journal.Device != nil && len(journal.Entries) == 0 {
+	if journal.Device != nil && len(journal.Entries) < 2 {
 		return errors.New("journal device has no ownership entry")
 	}
-	if len(journal.Entries) > 1 && *journal.Entries[1].Route != journal.Plan.EndpointRoute() {
+	if len(journal.Entries) > 0 && *journal.Entries[0].Route != journal.Plan.EndpointRoute() {
 		return errors.New("journal endpoint route does not match its plan")
 	}
 	if len(journal.Entries) > 2 {
@@ -372,7 +372,7 @@ func (journal Journal) Validate() error {
 }
 
 func (journal Journal) expectedKinds() []StepKind {
-	kinds := []StepKind{StepDevice, StepEndpointRoute}
+	kinds := []StepKind{StepEndpointRoute, StepDevice}
 	for range journal.Plan.TunnelRoutes() {
 		kinds = append(kinds, StepTunnelRoute)
 	}

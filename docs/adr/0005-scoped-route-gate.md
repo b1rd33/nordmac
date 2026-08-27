@@ -1,6 +1,6 @@
 # ADR 0005: require a scoped-route gate before any default route
 
-- Status: accepted; offline implementation complete, live validation pending
+- Status: accepted; route lifecycle validated live, peer traffic validation blocked on VPS UDP ingress
 - Date: 2026-08-27
 
 ## Decision
@@ -11,8 +11,8 @@ Schema 1 journals fail closed instead of being guessed or migrated. No live nord
 
 The transaction applies resources in this order:
 
-1. create the owned userspace `utun`, configure WireGuard, bring it up, and assign its owned IPv4 `/32`;
-2. pin the WireGuard endpoint through the captured physical gateway and interface;
+1. pin the WireGuard endpoint through the captured physical gateway and interface;
+2. create the owned userspace `utun`, configure WireGuard, bring it up, and assign its owned point-to-point IPv4 `/32`;
 3. add only the approved scoped route through the `utun`;
 4. verify both exact routes, ping the controlled peer, and require a fresh handshake with bidirectional counters.
 
@@ -22,11 +22,11 @@ Rollback uses the reverse order. Cancellation during verification gets a new bou
 
 The adapters invoke fixed absolute binaries with validated argument arrays and no shell:
 
-- `/sbin/ifconfig <utun> inet <private-address>/32 alias`
+- `/sbin/ifconfig <utun> inet <private-address> <private-peer> netmask 255.255.255.255 alias`
 - `/sbin/route -n add|delete ...`
 - `/sbin/ping -n -c 1 -W 1000 <private-peer>`
 
-The route adapter parses numeric `route get` output, rejects non-contiguous masks, refuses a pre-existing exact destination, and compares current ownership before deletion. The endpoint host route is intentionally unscoped through the captured gateway: `wireguard-go` uses an unbound UDP socket on Darwin, so an interface-scoped route might not be selected. The adapter verifies that macOS resolves the installed host route through the captured physical interface before continuing. macOS routes have no nordmac ownership tag, so a foreign actor replacing a route with byte-for-byte identical fields cannot be distinguished; the short gate window and journal lock reduce but cannot eliminate that platform limitation.
+The route adapter parses numeric `route get` output, rejects non-contiguous masks, refuses a pre-existing exact destination, and compares current ownership before deletion. The endpoint host route is intentionally unscoped through the captured gateway: `wireguard-go` uses an unbound UDP socket on Darwin, so an interface-scoped route might not be selected. It is installed before WireGuard starts because bringing up the device can emit a handshake immediately and race endpoint pinning with a cloned Darwin route-cache entry. The adapter verifies that macOS resolves the installed host route through the captured physical interface before continuing. macOS routes have no nordmac ownership tag, so a foreign actor replacing a route with byte-for-byte identical fields cannot be distinguished; the short gate window and journal lock reduce but cannot eliminate that platform limitation.
 
 ## Harness and crash recovery
 
@@ -34,9 +34,11 @@ The route adapter parses numeric `route get` output, rejects non-contiguous mask
 
 State is stored at the fixed, validated path `/private/tmp/nordmac-gate3-<session>`. Normal cleanup removes it only after the journal is gone. `--recover-session <session>` needs no keys and replays journaled route cleanup after a crash; incomplete cleanup retains the journal instead of deleting evidence.
 
-## Live gate still required
+## Live gate result
 
-No address or route command has been executed by this implementation slice. Before running Gate 3, require approval naming:
+The approved 2026-08-27 run against a temporary userspace peer on `87.106.8.110:51820` proved point-to-point utun addressing, exact endpoint and scoped-route ownership checks, normal timeout rollback, cancellation rollback, and explicit recovery after SIGKILL. The controlled peer never received the Mac's UDP traffic: VPS host UDP counters did not change after a dedicated datagram probe. The fresh bidirectional handshake requirement therefore did not pass, and Gate 3 remains incomplete. See `docs/validation/scoped-route-2026-08-27.md`.
+
+Any retry still requires approval naming:
 
 - the controlled non-loopback peer endpoint;
 - `10.250.0.2/32` as the temporary host tunnel address;

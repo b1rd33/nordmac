@@ -122,7 +122,7 @@ func run() (retErr error) {
 	manager := &wgbackend.Manager{
 		Secrets:   source,
 		Factory:   wgbackend.UserspaceFactory{},
-		Addresses: darwinnet.AddressManager{Runner: runner},
+		Addresses: darwinnet.AddressManager{Runner: runner, PeerAddress: input.PeerAddress},
 	}
 	verifier := scopedVerifier{
 		Devices:     manager,
