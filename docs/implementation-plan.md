@@ -199,11 +199,33 @@ Decision gate A: Is the public API sufficiently reliable and its use acceptable 
 
 Design Keychain records and secret input, but use only disposable test material. Independently bring up the backend against a controlled WireGuard peer, implement the privileged boundary and full transaction/rollback with no Nord credentials.
 
+Possible deliverables:
+
+- an ADR documenting the observed Nord authentication/provisioning contract, confidence level, expiry/revocation behavior, and unresolved assumptions;
+- a Keychain storage prototype using synthetic secrets only, including hidden input, lookup, replacement, deletion, and redaction tests;
+- a versioned CLI-to-helper protocol with peer identity checks, strict request validation, timeouts, and no general-purpose command execution;
+- a userspace WireGuard backend connected only to a controlled test peer;
+- route and DNS planners with fake adapters, failure injection after every mutation, and deterministic rollback tests;
+- a macOS integration harness that exercises `utun` creation and cleanup against the controlled peer under a separately approved test plan;
+- an ADR comparing a raw `utun` helper with a signed Network Extension on security, lifecycle, development cost, sleep/wake, roaming, and recovery.
+
+Phase 2 remains Nord-network-free: no Nord credential use and no Nord tunnel attempt. It is complete only when the controlled peer can connect, verify, disconnect, and restore the recorded route/DNS pre-image repeatedly, including injected failure cases.
+
 Decision gate B: root helper/raw `utun` versus signed Network Extension, based on crash, roaming, DNS, and coexistence evidence.
 
 ### Phase 3 — minimal Nord live tunnel PoC
 
 Only after the evidence checklist and explicit approval: one server, one short-lived session, IPv4 policy stated in advance, no kill switch, no auto-reconnect. Verify handshake/egress/DNS and immediately disconnect/restore.
+
+Possible deliverables:
+
+- a frozen, reviewed manifest containing the one server hostname/IP, UDP port, server public-key fingerprint, client address, allowed IPs, MTU, DNS, dependency versions, and exact mutations;
+- before/after snapshots of physical routes, scoped DNS, active VPN interfaces, and nordmac-owned state;
+- a single bounded `connect` experiment with a maximum duration and an out-of-band recovery procedure;
+- evidence of a fresh WireGuard handshake, RX/TX movement, selected-country egress, intended DNS behavior, physical endpoint-route pinning, and clean rollback;
+- a redacted test report recording failures and API/schema observations without tokens, private keys, or reusable raw configurations.
+
+Do not add retries, failover, daemonization, auto-start, a kill switch, or persistent installation in this phase. A successful single handshake validates feasibility; it does not yet establish production reliability.
 
 Decision gate C: if the API/credential contract is unstable, unsupported, or cannot be safely obtained, do not productize connect.
 
@@ -211,9 +233,56 @@ Decision gate C: if the API/credential contract is unstable, unsupported, or can
 
 Add `login`, generalized selectors, `status`, `disconnect`, `reconnect --fresh`, stale-state recovery, sleep/wake behavior, packaging/signing/helper installation, diagnostics/redaction, and coexistence policy.
 
+Possible deliverables:
+
+- safe `login`, credential replacement, credential status, and logout/revocation semantics backed by Keychain;
+- all target commands with stable human and versioned JSON output;
+- city and exact-server selection, server revalidation immediately before connection, and clear offline/no-match behavior;
+- an explicit lifecycle state machine with exclusive locking, idempotent disconnect, stale-journal recovery, signal handling, and bounded retries;
+- tested handling for sleep/wake, Wi-Fi or gateway changes, DNS changes, endpoint address rotation, helper/CLI crash, and reboot;
+- a documented default refusal policy for active foreign default-route VPNs, plus tested Tailscale coexistence only if it can be made predictable;
+- signed or checksum-verifiable local packaging, a narrowly scoped helper installation/removal flow, and an uninstall/recovery command;
+- redacted diagnostics that report ownership and health without exposing credentials or browsing/network history.
+
+Phase 4 is complete when the full lifecycle passes repeated local integration tests and a small number of explicitly approved Nord sessions without manual route/DNS repair. Keep it private and manually invoked at this stage.
+
+Decision gate D: is the selected helper/Network Extension architecture reliable enough for unattended personal use? If not, keep nordmac interactive and fail closed.
+
 ### Phase 5 — optional hardening
 
 PF kill switch, IPv6 support or explicit block, endpoint failover, health monitoring, structured audit log, and Network Extension migration if selected.
+
+Possible deliverables:
+
+- a private PF anchor with exact ownership, atomic apply/remove, preservation of pre-existing PF state, and boot/crash recovery tests;
+- a proven IPv6 tunnel configuration, or a clearly surfaced and separately approved IPv6 block policy;
+- constrained endpoint failover that repins routes before changing peers and has retry/time budgets;
+- continuous handshake, route, and DNS health checks that transition to `degraded` and disconnect or fail closed according to policy;
+- structured, locally retained audit events with explicit retention and aggressive secret/privacy redaction;
+- migration to a signed Network Extension if raw `utun` lifecycle evidence remains inadequate;
+- a recovery utility and written manual recovery procedure that work even when the main CLI cannot start.
+
+Every hardening feature is independently opt-in until its rollback and crash behavior is proven. In particular, PF is never enabled merely because a tunnel can connect.
+
+Decision gate E: enable each hardening feature by default only after failure-injection and reboot testing show that it cannot strand the Mac offline.
+
+### Phase 6 — agent and workflow integration
+
+Expose the stable CLI safely to local agents and scripts only after Phase 4, with mutating capabilities disabled by default.
+
+Possible deliverables:
+
+- machine-readable command schemas and a documented JSON compatibility policy;
+- `--dry-run` plans showing the selected server and intended privileged mutations without credentials or changes;
+- non-interactive read-only `countries`, `recommend`, and `status` workflows with bounded timeouts;
+- an explicit policy file restricting agents to allowed countries, cities, servers, command classes, and maximum session duration;
+- human confirmation or a short-lived authorization grant for `connect`, `disconnect`, credential operations, and policy changes;
+- stable error categories, correlation IDs, cancellation support, and redacted audit events for agent debugging;
+- concurrency tests so two agents cannot race connection, rollback, or credential state.
+
+Do not expose arbitrary helper IPC, raw WireGuard configuration, Keychain contents, PF controls, or shell hooks as agent tools. Agents invoke the same validated application layer as a human CLI.
+
+Decision gate F: permit unattended connection only if an explicit user policy defines destinations, duration, conflict behavior, and recovery; otherwise agents may recommend and report status but not mutate the network.
 
 ## 12. Concise Phase 1 task list
 
