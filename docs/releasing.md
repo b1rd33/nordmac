@@ -13,9 +13,9 @@
 ## One-time GitHub setup
 
 1. Create `b1rd33/nordmac` and add it as `origin`.
-2. Choose repository visibility. Standard unauthenticated Homebrew installation requires public release assets; do not make the repository public without explicit approval.
+2. Create it as a public repository so Homebrew can download release assets without authentication.
 3. Add repository secret `HOMEBREW_TAP_TOKEN`, using a fine-grained token with `Contents: write` only for `b1rd33/homebrew-tap`.
-4. Decide and document a source license before public distribution. The release configuration intentionally does not declare a license until that choice is made.
+4. Keep the MIT license and source-provenance record in every release archive.
 5. Push `main` and confirm the CI workflow passes.
 
 ## Local checks
@@ -40,7 +40,7 @@ git push origin main
 git push origin v0.1.0
 ```
 
-The tag push triggers `.github/workflows/release.yml`. Do not create or push the tag until the repository visibility, license, tap token, and snapshot checks are resolved. A failed tag workflow must be repaired without moving or reusing a published tag.
+The tag push triggers `.github/workflows/release.yml`. Do not create or push the tag until the public repository, tap token, and snapshot checks are resolved. A failed tag workflow must be repaired without moving or reusing a published tag.
 
 After the release workflow and tap commit succeed:
 

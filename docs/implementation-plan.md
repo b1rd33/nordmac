@@ -2,7 +2,7 @@
 
 Status: Phase 1 implemented and verified
 Date: 2026-08-27  
-Scope: private, personal macOS tool
+Scope: open-source, personal macOS tool
 
 ## 1. Outcome and non-goals
 
@@ -127,7 +127,7 @@ Do not make `wg-quick` the product architecture:
 - it is an orchestration shell script, so using it would outsource precisely the route/DNS ownership and rollback behavior nordmac must control;
 - its Darwin script mutates DNS across network services and monitors routes in a background process, which complicates precise ownership and coexistence;
 - it requires Bash 4+, absent on this Mac, and `wg`/`wireguard-go` are absent;
-- wireguard-tools is GPL-2.0, while `wireguard-go` is MIT-licensed. Shelling out to a separately installed GPL tool is legally different from copying it, but it adds an unnecessary runtime/install dependency for this private tool.
+- wireguard-tools is GPL-2.0, while `wireguard-go` is MIT-licensed. Shelling out to a separately installed GPL tool is legally different from copying it, but it adds an unnecessary runtime/install dependency.
 
 Recommended tunnel sequence:
 
@@ -246,7 +246,7 @@ Possible deliverables:
 - signed or checksum-verifiable local packaging, a narrowly scoped helper installation/removal flow, and an uninstall/recovery command;
 - redacted diagnostics that report ownership and health without exposing credentials or browsing/network history.
 
-Phase 4 is complete when the full lifecycle passes repeated local integration tests and a small number of explicitly approved Nord sessions without manual route/DNS repair. Keep it private and manually invoked at this stage.
+Phase 4 is complete when the full lifecycle passes repeated local integration tests and a small number of explicitly approved Nord sessions without manual route/DNS repair. Keep it experimental and manually invoked at this stage.
 
 Decision gate D: is the selected helper/Network Extension architecture reliable enough for unattended personal use? If not, keep nordmac interactive and fail closed.
 

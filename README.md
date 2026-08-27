@@ -1,6 +1,6 @@
 # nordmac
 
-Private, macOS-first CLI for selecting NordVPN locations and, only after an explicit validation gate, managing a NordLynx/WireGuard tunnel without GUI automation.
+Open-source, macOS-first CLI for selecting NordVPN locations and, only after an explicit validation gate, managing a NordLynx/WireGuard tunnel without GUI automation.
 
 Phase 1 is implemented. The available commands are read-only and use Nord's public, unauthenticated server catalog. No tunnel implementation, authentication flow, credentials, installer, privileged helper, or network mutation exists.
 
@@ -50,3 +50,9 @@ brew install --cask b1rd33/tap/nordmac
 ```
 
 Release archives include Apple Silicon and Intel macOS binaries plus SHA-256 checksums. See [docs/releasing.md](docs/releasing.md) for the release pipeline and its remaining publication gates.
+
+## License and affiliation
+
+`nordmac` is independently authored and released under the [MIT License](LICENSE). See [source provenance](docs/source-provenance.md) for the pre-publication comparison with Nord's GPL Linux client.
+
+This is an unofficial project and is not affiliated with or endorsed by Nord Security. NordVPN and NordLynx are referenced only to describe interoperability targets.
