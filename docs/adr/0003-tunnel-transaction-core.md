@@ -33,7 +33,7 @@ IPv6 is intentionally rejected in this slice. This is not leak protection and mu
 Use four gates, each requiring the previous gate to pass:
 
 1. **Dependency freeze:** completed offline in ADR 0004. `wireguard-go` is pinned to source commit `ecfc5a8d54462e18e13c72173e2623d16d8e25a0` through immutable pseudo-version `v0.0.0-20260522210424-ecfc5a8d5446`; the module graph, checksums, and licenses are recorded in `docs/wireguard-dependencies.md`.
-2. **Device-only harness:** implemented but not executed. In a disposable macOS VM or explicitly approved sacrificial environment, create a userspace `utun` connected only to a controlled WireGuard peer. Configure no interface address, default route, or DNS. Prove interface ownership, a fresh handshake, counters, cancellation, process death cleanup, and repeated teardown.
+2. **Device-only harness:** passed on 2026-08-27. A root-owned `utun11` completed a fresh handshake with an ephemeral controlled peer bound to loopback, then disappeared during exact-owner cleanup. See `docs/validation/device-only-2026-08-27.md`. Signal/process-death fault injection remains a required gate-3 regression check.
 3. **Scoped-route harness:** add only a synthetic peer subnet and endpoint pin. Inject failures before and after each real mutation and compare the observed system state with the journal. Do not add default routes yet.
 4. **Full transaction harness:** with an out-of-band recovery path, exercise split IPv4 defaults and synthetic DNS, then verify compare-before-restore, signals, helper crash, stale journal recovery, repeated disconnect, and restoration of the exact pre-image.
 

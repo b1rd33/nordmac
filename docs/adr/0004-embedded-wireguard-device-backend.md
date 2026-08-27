@@ -1,6 +1,6 @@
 # ADR 0004: embed a pinned WireGuard userspace device behind an unwired adapter
 
-- Status: accepted for the device-only validation gate
+- Status: validated for the device-only gate
 - Date: 2026-08-27
 
 ## Decision
@@ -22,3 +22,5 @@ The manager records the exact session, actual `utun` name, process ID, and live 
 ## Consequences
 
 This validates only WireGuard device creation and handshake mechanics. It is not a VPN, offers no leak protection, and must not be exposed as `nordmac connect`. Gate 3 remains responsible for interface addressing and one scoped synthetic route. Full IPv4 routes, DNS, IPv6 policy, sleep/wake, roaming, and stale-journal recovery remain later gates.
+
+The first live device-only validation passed on 2026-08-27. The evidence and cleanup record are in `docs/validation/device-only-2026-08-27.md`.
