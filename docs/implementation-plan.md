@@ -1,6 +1,6 @@
 # nordmac implementation plan
 
-Status: planning only  
+Status: Phase 1 implemented and verified
 Date: 2026-08-27  
 Scope: private, personal macOS tool
 
@@ -194,6 +194,8 @@ If any of items 1-5 cannot be established, stop at the recommendation CLI. A pub
 Implement `countries` and `recommend`, typed public API client, deterministic selection, stable JSON, cache, fixtures, tests, documentation, and provenance notes. No login command behavior beyond a clear `not implemented`; no sudo/root code.
 
 Decision gate A: Is the public API sufficiently reliable and its use acceptable for this personal tool? If not, keep cached/manual catalogs or stop.
+
+Result on 2026-08-27: accepted for bounded, read-only personal use. The client has strict validation, timeouts, bounded responses, a non-secret country cache, and explicit failure behavior. This does not imply acceptance of any authentication or tunnel endpoint.
 
 ### Phase 2 — credential-contract research and local-peer tunnel harness
 

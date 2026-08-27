@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1000,
+    "name": "Germany #1000",
+    "hostname": "de1000.nordvpn.com",
+    "load": 2,
+    "status": "offline",
+    "locations": [{"country": {"id": 81, "name": "Germany", "code": "DE", "city": {"id": 2181458, "name": "Berlin", "dns_name": "berlin"}}}],
+    "technologies": [{"identifier": "wireguard_udp", "metadata": [{"name": "public_key", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}]}]
+  },
+  {
+    "id": 1001,
+    "name": "Germany #1001",
+    "hostname": "de1001.nordvpn.com",
+    "load": 6,
+    "status": "online",
+    "locations": [{"country": {"id": 81, "name": "Germany", "code": "DE", "city": {"id": 2181458, "name": "Berlin", "dns_name": "berlin"}}}],
+    "technologies": [{"identifier": "wireguard_udp", "metadata": [{"name": "public_key", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}]}]
+  },
+  {
+    "id": 1002,
+    "name": "Germany #1002",
+    "hostname": "de1002.nordvpn.com",
+    "load": 4,
+    "status": "online",
+    "locations": [{"country": {"id": 81, "name": "Germany", "code": "DE", "city": {"id": 2215709, "name": "Frankfurt", "dns_name": "frankfurt"}}}],
+    "technologies": [{"identifier": "wireguard_udp", "metadata": [{"name": "public_key", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}]}]
+  }
+]
+

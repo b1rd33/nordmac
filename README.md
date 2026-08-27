@@ -2,7 +2,7 @@
 
 Private, macOS-first CLI for selecting NordVPN locations and, only after an explicit validation gate, managing a NordLynx/WireGuard tunnel without GUI automation.
 
-The project is currently in planning. No tunnel implementation, authentication flow, credentials, installer, or network mutation exists yet.
+Phase 1 is implemented. The available commands are read-only and use Nord's public, unauthenticated server catalog. No tunnel implementation, authentication flow, credentials, installer, privileged helper, or network mutation exists.
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for the architecture, phased delivery plan, safety gates, and Phase 1 scope.
 
@@ -22,3 +22,21 @@ sudo nordmac reconnect --fresh
 
 These commands are a target interface, not a statement that Nord's undocumented authentication and NordLynx provisioning APIs are stable or supported.
 
+## Phase 1 commands
+
+```bash
+mkdir -p bin
+go build -o bin/nordmac ./cmd/nordmac
+
+bin/nordmac countries
+bin/nordmac countries --json
+bin/nordmac recommend de
+bin/nordmac recommend de --city berlin --json
+bin/nordmac recommend de --server de1234 --json
+```
+
+`countries` uses a 24-hour non-secret cache at the platform user cache location. Set `NORDMAC_CACHE_DIR` to override its parent directory for development or tests. `--refresh` requests a new country catalog; if the public API is unavailable and stale cache data exists, the command succeeds with an explicit warning.
+
+The `login`, `status`, `connect`, `disconnect`, and `reconnect` command names currently return an `unavailable` error and perform no system changes.
+
+The current `/v1/servers` endpoints are the replacement family Nord pointed users to after deprecating older endpoints; nevertheless, they remain undocumented and are treated as unstable. See [ADR 0001](docs/adr/0001-public-api.md).

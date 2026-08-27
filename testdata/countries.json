@@ -1,0 +1,20 @@
+[
+  {
+    "id": 228,
+    "name": "United States",
+    "code": "US",
+    "cities": [
+      {"id": 9001, "name": "New York", "dns_name": "new-york"}
+    ]
+  },
+  {
+    "id": 81,
+    "name": "Germany",
+    "code": "DE",
+    "cities": [
+      {"id": 2215709, "name": "Frankfurt", "dns_name": "frankfurt"},
+      {"id": 2181458, "name": "Berlin", "dns_name": "berlin"}
+    ]
+  }
+]
+
