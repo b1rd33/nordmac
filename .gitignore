@@ -1,0 +1,18 @@
+# Build output
+/bin/
+/dist/
+/coverage.out
+/*.test
+
+# Local runtime state and secrets (must never be committed)
+/.nordmac/
+/*.key
+/*.conf
+/*.token
+/*.log
+
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+
