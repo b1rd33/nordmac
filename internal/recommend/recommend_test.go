@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/catalog"
 )
 
 var germany = catalog.Country{

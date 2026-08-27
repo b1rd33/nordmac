@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/catalog"
 )
 
 func TestCountriesRoundTripAndFreshness(t *testing.T) {

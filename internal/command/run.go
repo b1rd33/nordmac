@@ -7,9 +7,10 @@ import (
 	"io"
 	"strings"
 
-	"nordmac/internal/catalog"
-	"nordmac/internal/output"
-	"nordmac/internal/recommend"
+	"github.com/b1rd33/nordmac/internal/buildinfo"
+	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/output"
+	"github.com/b1rd33/nordmac/internal/recommend"
 )
 
 const (
@@ -32,6 +33,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend B
 	}
 
 	switch args[0] {
+	case "version", "--version":
+		fmt.Fprintln(stdout, buildinfo.String())
+		return ExitOK
 	case "help", "--help", "-h":
 		writeUsage(stdout)
 		return ExitOK

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"nordmac/internal/cache"
-	"nordmac/internal/catalog"
-	"nordmac/internal/recommend"
+	"github.com/b1rd33/nordmac/internal/cache"
+	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/recommend"
 )
 
 type fakeAPI struct {

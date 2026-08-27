@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"nordmac/internal/catalog"
-	"nordmac/internal/recommend"
+	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/recommend"
 )
 
 type fakeBackend struct {
@@ -72,6 +72,14 @@ func TestRunCountriesText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "DE  Germany") || !strings.Contains(stdout.String(), "berlin") {
 		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestRunVersionNeedsNoBackend(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"--version"}, &stdout, &stderr, nil)
+	if exit != ExitOK || !strings.HasPrefix(stdout.String(), "nordmac ") || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/catalog"
 )
 
 const cacheSchemaVersion = 1

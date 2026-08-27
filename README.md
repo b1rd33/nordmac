@@ -40,3 +40,13 @@ bin/nordmac recommend de --server de1234 --json
 The `login`, `status`, `connect`, `disconnect`, and `reconnect` command names currently return an `unavailable` error and perform no system changes.
 
 The current `/v1/servers` endpoints are the replacement family Nord pointed users to after deprecating older endpoints; nevertheless, they remain undocumented and are treated as unstable. See [ADR 0001](docs/adr/0001-public-api.md).
+
+## Homebrew release
+
+Once `v0.1.0` is published, install from the existing personal tap:
+
+```bash
+brew install --cask b1rd33/tap/nordmac
+```
+
+Release archives include Apple Silicon and Intel macOS binaries plus SHA-256 checksums. See [docs/releasing.md](docs/releasing.md) for the release pipeline and its remaining publication gates.

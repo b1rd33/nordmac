@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/catalog"
 )
 
 const (

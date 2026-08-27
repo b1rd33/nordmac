@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/catalog"
 )
 
 // Query describes a deterministic recommendation request.

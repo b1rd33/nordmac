@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"nordmac/internal/cache"
-	"nordmac/internal/command"
-	"nordmac/internal/nordapi"
+	"github.com/b1rd33/nordmac/internal/cache"
+	"github.com/b1rd33/nordmac/internal/command"
+	"github.com/b1rd33/nordmac/internal/nordapi"
 )
 
 func main() {
