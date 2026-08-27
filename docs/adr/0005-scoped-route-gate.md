@@ -1,6 +1,6 @@
 # ADR 0005: require a scoped-route gate before any default route
 
-- Status: accepted; route lifecycle validated live, peer traffic validation blocked on VPS UDP ingress
+- Status: accepted; Gate 3 passed live
 - Date: 2026-08-27
 
 ## Decision
@@ -36,9 +36,9 @@ State is stored at the fixed, validated path `/private/tmp/nordmac-gate3-<sessio
 
 ## Live gate result
 
-The approved 2026-08-27 run against a temporary userspace peer on `87.106.8.110:51820` proved point-to-point utun addressing, exact endpoint and scoped-route ownership checks, normal timeout rollback, cancellation rollback, and explicit recovery after SIGKILL. The controlled peer never received the Mac's UDP traffic: VPS host UDP counters did not change after a dedicated datagram probe. The fresh bidirectional handshake requirement therefore did not pass, and Gate 3 remains incomplete. See `docs/validation/scoped-route-2026-08-27.md`.
+The approved 2026-08-27 run against a temporary userspace peer on `87.106.8.110:51820` proved point-to-point utun addressing, exact endpoint and scoped-route ownership checks, scoped peer traffic, a fresh bidirectional handshake, normal rollback, cancellation rollback, and explicit recovery after SIGKILL. The successful snapshot recorded 308 transmitted bytes, 220 received bytes, and a fresh handshake on `utun12`. Post-test checks found no retained interface, route, journal, peer container, key fixture, host nftables rule, or provider firewall rule. Gate 3 passed. See `docs/validation/scoped-route-2026-08-27.md`.
 
-Any retry still requires approval naming:
+Any future repetition still requires approval naming:
 
 - the controlled non-loopback peer endpoint;
 - `10.250.0.2/32` as the temporary host tunnel address;
