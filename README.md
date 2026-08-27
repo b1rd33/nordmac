@@ -43,13 +43,13 @@ The current `/v1/servers` endpoints are the replacement family Nord pointed user
 
 ## Homebrew release
 
-Once `v0.1.0` is published, install from the existing personal tap:
+Install the latest release from the public tap:
 
 ```bash
 brew install --cask b1rd33/tap/nordmac
 ```
 
-Release archives include Apple Silicon and Intel macOS binaries plus SHA-256 checksums. See [docs/releasing.md](docs/releasing.md) for the release pipeline and its remaining publication gates.
+Release archives include Apple Silicon and Intel macOS binaries plus SHA-256 checksums. See the [v0.1.0 release](https://github.com/b1rd33/nordmac/releases/tag/v0.1.0) or [docs/releasing.md](docs/releasing.md) for the release pipeline.
 
 ## License and affiliation
 
