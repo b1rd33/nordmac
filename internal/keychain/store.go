@@ -19,8 +19,12 @@ const (
 	defaultService = "com.github.b1rd33.nordmac"
 )
 
-// Runner exists so tests can verify that secrets are sent on stdin and never
-// placed in argv without touching the user's Keychain.
+// ErrWriteUnavailable keeps credential writes disabled until a native secret
+// boundary passes isolated and login-Keychain validation.
+var ErrWriteUnavailable = errors.New("Keychain writes require a validated native secret boundary")
+
+// Runner isolates the security(1) read/delete adapter for deterministic tests.
+// Writes are disabled because prompted stdin proved unreliable live.
 type Runner interface {
 	Run(context.Context, []byte, string, ...string) ([]byte, []byte, error)
 }
@@ -37,8 +41,8 @@ func (commandRunner) Run(ctx context.Context, stdin []byte, binary string, args 
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
-// Store is a macOS Keychain-backed credentials.Store. Constructing it does not
-// read or modify the Keychain.
+// Store is a fail-closed macOS Keychain credentials.Store. Get and Delete use
+// security(1); Put remains disabled pending a native validated boundary.
 type Store struct {
 	Runner   Runner
 	Binary   string
@@ -50,30 +54,11 @@ func New() Store {
 	return Store{Runner: commandRunner{}, Binary: defaultBinary, Service: defaultService}
 }
 
-func (store Store) Put(ctx context.Context, kind credentials.Kind, secret []byte) error {
+func (store Store) Put(_ context.Context, kind credentials.Kind, _ []byte) error {
 	if err := store.validate(kind); err != nil {
 		return err
 	}
-	if len(secret) == 0 {
-		return errors.New("refusing to store an empty credential")
-	}
-	if bytes.ContainsAny(secret, "\r\n\x00") {
-		return errors.New("credential contains unsupported control characters")
-	}
-
-	// With -w last, security reads the password from its prompt. Supplying the
-	// prompt input over stdin keeps the secret out of argv and process listings.
-	stdin := make([]byte, len(secret)+1)
-	copy(stdin, secret)
-	stdin[len(secret)] = '\n'
-	defer credentials.Wipe(stdin)
-
-	_, stderr, err := store.runner().Run(ctx, stdin, store.binary(),
-		"add-generic-password", "-U", "-a", string(kind), "-s", store.service(), "-w")
-	if err != nil {
-		return commandError("store credential", stderr, err)
-	}
-	return nil
+	return ErrWriteUnavailable
 }
 
 func (store Store) Get(ctx context.Context, kind credentials.Kind) ([]byte, error) {

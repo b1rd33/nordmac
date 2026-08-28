@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/b1rd33/nordmac/internal/credentials"
@@ -29,56 +28,16 @@ func (runner *fakeRunner) Run(_ context.Context, stdin []byte, binary string, ar
 	return bytes.Clone(runner.stdout), bytes.Clone(runner.stderr), runner.err
 }
 
-func TestPutKeepsSecretOutOfArguments(t *testing.T) {
+func TestPutFailsClosedBeforeRunner(t *testing.T) {
 	runner := &fakeRunner{}
 	store := Store{Runner: runner, platform: "darwin"}
 	secret := []byte("synthetic-token-123")
 
-	if err := store.Put(context.Background(), credentials.AccessToken, secret); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls = %d, want 1", len(runner.calls))
-	}
-	got := runner.calls[0]
-	if strings.Contains(strings.Join(got.args, " "), string(secret)) {
-		t.Fatal("secret appeared in command arguments")
-	}
-	if !bytes.Equal(got.stdin, append(bytes.Clone(secret), '\n')) {
-		t.Fatalf("stdin was not the expected prompted secret")
-	}
-	wantArgs := []string{"add-generic-password", "-U", "-a", "access-token", "-s", defaultService, "-w"}
-	if !reflect.DeepEqual(got.args, wantArgs) {
-		t.Fatalf("args = %#v, want %#v", got.args, wantArgs)
-	}
-	if !bytes.Equal(secret, []byte("synthetic-token-123")) {
-		t.Fatal("Put modified the caller-owned secret")
-	}
-}
-
-func TestPutRejectsUnsafeValuesBeforeRunner(t *testing.T) {
-	runner := &fakeRunner{}
-	store := Store{Runner: runner, platform: "darwin"}
-	for _, secret := range [][]byte{nil, {}, []byte("line\nbreak"), []byte{'a', 0, 'b'}} {
-		if err := store.Put(context.Background(), credentials.AccessToken, secret); err == nil {
-			t.Fatalf("Put(%q) unexpectedly succeeded", secret)
-		}
+	if err := store.Put(context.Background(), credentials.AccessToken, secret); !errors.Is(err, ErrWriteUnavailable) {
+		t.Fatalf("Put error = %v, want ErrWriteUnavailable", err)
 	}
 	if len(runner.calls) != 0 {
-		t.Fatal("runner was called for an invalid secret")
-	}
-}
-
-func TestPutErrorCannotEchoSecret(t *testing.T) {
-	secret := []byte("synthetic-token-123")
-	runner := &fakeRunner{stderr: append([]byte("unexpected echo: "), secret...), err: errors.New("exit status 1")}
-	store := Store{Runner: runner, platform: "darwin"}
-	err := store.Put(context.Background(), credentials.AccessToken, secret)
-	if err == nil {
-		t.Fatal("Put unexpectedly succeeded")
-	}
-	if strings.Contains(err.Error(), string(secret)) {
-		t.Fatal("secret appeared in the returned error")
+		t.Fatal("runner was called for a disabled write")
 	}
 }
 
