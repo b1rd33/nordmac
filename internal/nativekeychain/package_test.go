@@ -69,3 +69,37 @@ func TestLocatePackagedHelperRejectsMismatchAndWritableFile(t *testing.T) {
 		t.Fatal("mismatched helper unexpectedly accepted")
 	}
 }
+
+func TestLocatePackagedHelperRejectsNonExecutableAndWritableDirectory(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "nordmac")
+	if err := os.WriteFile(executable, []byte("cli"), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	libexec := filepath.Join(root, "libexec")
+	if err := os.Mkdir(libexec, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(libexec, packagedHelperName)
+	contents := []byte("helper")
+	if err := os.WriteFile(helper, contents, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(contents)
+	locate := func() error {
+		_, err := locatePackagedHelper(func() (string, error) { return executable, nil }, filepath.EvalSymlinks, hex.EncodeToString(digest[:]))
+		return err
+	}
+	if err := locate(); err == nil {
+		t.Fatal("non-executable helper unexpectedly accepted")
+	}
+	if err := os.Chmod(helper, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(libexec, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := locate(); err == nil {
+		t.Fatal("group/world-writable helper directory unexpectedly accepted")
+	}
+}

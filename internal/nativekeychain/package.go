@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 )
@@ -34,9 +35,16 @@ func locatePackagedHelper(executable func() (string, error), resolve func(string
 		return "", errors.New("resolve nordmac executable")
 	}
 	candidate := filepath.Join(filepath.Dir(path), "libexec", packagedHelperName)
+	parentInfo, err := os.Stat(filepath.Dir(candidate))
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("packaged native Keychain helper directory is unsafe")
+	}
 	info, err := os.Lstat(candidate)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Mode().Perm()&0o111 == 0 {
 		return "", errors.New("packaged native Keychain helper has unsafe type or mode")
+	}
+	if !safeOwner(info) || !sameOwner(info, parentInfo) {
+		return "", errors.New("packaged native Keychain helper has unsafe ownership")
 	}
 	file, err := os.Open(candidate)
 	if err != nil {
@@ -51,6 +59,17 @@ func locatePackagedHelper(executable func() (string, error), resolve func(string
 		return "", errors.New("packaged native Keychain helper digest mismatch")
 	}
 	return candidate, nil
+}
+
+func safeOwner(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && (stat.Uid == 0 || stat.Uid == uint32(os.Geteuid()))
+}
+
+func sameOwner(first, second os.FileInfo) bool {
+	firstStat, firstOK := first.Sys().(*syscall.Stat_t)
+	secondStat, secondOK := second.Sys().(*syscall.Stat_t)
+	return firstOK && secondOK && firstStat.Uid == secondStat.Uid
 }
 
 func equalDigest(actual, expected []byte) bool {

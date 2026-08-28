@@ -11,9 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/b1rd33/nordmac/internal/authstate"
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/loginflow"
 	"github.com/b1rd33/nordmac/internal/recommend"
+	"github.com/b1rd33/nordmac/internal/tokeninput"
 )
 
 type fakeBackend struct {
@@ -21,6 +24,30 @@ type fakeBackend struct {
 	result    RecommendationResult
 	err       error
 	query     recommend.Query
+}
+
+type fakeAuthenticationBackend struct {
+	*fakeBackend
+	loginResult  loginflow.Result
+	statusResult authstate.Status
+	logoutResult authstate.LogoutResult
+	err          error
+	seenToken    []byte
+	seenRaw      []byte
+}
+
+func (backend *fakeAuthenticationBackend) Login(_ context.Context, token []byte) (loginflow.Result, error) {
+	backend.seenRaw = token
+	backend.seenToken = bytes.Clone(token)
+	return backend.loginResult, backend.err
+}
+
+func (backend *fakeAuthenticationBackend) CredentialStatus(context.Context) (authstate.Status, error) {
+	return backend.statusResult, backend.err
+}
+
+func (backend *fakeAuthenticationBackend) LogoutLocal(context.Context) (authstate.LogoutResult, error) {
+	return backend.logoutResult, backend.err
 }
 
 func (f *fakeBackend) Countries(context.Context, bool) (catalog.CountriesResult, error) {
@@ -141,6 +168,83 @@ func TestRunUnavailableNeverCallsBackend(t *testing.T) {
 	exit := Run(context.Background(), []string{"connect", "de", "--json"}, &stdout, &stderr, backend)
 	if exit != ExitUsage || !strings.Contains(stdout.String(), "no system changes were made") {
 		t.Fatalf("exit=%d stdout=%q", exit, stdout.String())
+	}
+}
+
+func TestRunLoginReadsBoundedStdinAndWipesToken(t *testing.T) {
+	backend := &fakeAuthenticationBackend{
+		fakeBackend: &fakeBackend{}, loginResult: loginflow.Result{AccountID: 42},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := RunWithInput(context.Background(), []string{"login", "--token-stdin", "--json"}, Input{Reader: strings.NewReader("0123456789abcdef\n")}, &stdout, &stderr, backend)
+	if exit != ExitOK || string(backend.seenToken) != "0123456789abcdef" || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"account_id":42`) {
+		t.Fatalf("exit=%d token=%q stdout=%q stderr=%q", exit, backend.seenToken, stdout.String(), stderr.String())
+	}
+	if !bytes.Equal(backend.seenRaw, make([]byte, len(backend.seenRaw))) {
+		t.Fatalf("transient token was not wiped: %q", backend.seenRaw)
+	}
+}
+
+func TestRunLoginUsesHiddenTerminalInput(t *testing.T) {
+	backend := &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}, loginResult: loginflow.Result{AccountID: 7}}
+	var stdout, stderr bytes.Buffer
+	exit := RunWithInput(context.Background(), []string{"login"}, Input{FD: 9, Terminal: tokeninput.Terminal{
+		IsTerminal: func(fd int) bool { return fd == 9 },
+		ReadPassword: func(fd int) ([]byte, error) {
+			return []byte("0123456789abcdef"), nil
+		},
+	}}, &stdout, &stderr, backend)
+	if exit != ExitOK || !strings.Contains(stderr.String(), "Nord access token:") || !strings.Contains(stdout.String(), "account 7") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunLoginUnavailableDoesNotReadInput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	reader := &countingReader{}
+	exit := RunWithInput(context.Background(), []string{"login", "--token-stdin", "--json"}, Input{Reader: reader}, &stdout, &stderr, &fakeBackend{})
+	if exit != ExitUsage || reader.reads != 0 || !strings.Contains(stdout.String(), `"code":"unavailable"`) {
+		t.Fatalf("exit=%d reads=%d stdout=%q", exit, reader.reads, stdout.String())
+	}
+}
+
+type countingReader struct{ reads int }
+
+func (reader *countingReader) Read([]byte) (int, error) {
+	reader.reads++
+	return 0, errors.New("must not read")
+}
+
+func TestRunStatusReportsCredentialAndTunnelState(t *testing.T) {
+	backend := &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}, statusResult: authstate.Status{
+		State: authstate.Inconsistent, HasToken: true, RepairNeeded: true,
+	}}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"status", "--json"}, &stdout, &stderr, backend)
+	if exit != ExitOK || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"inconsistent"`) || !strings.Contains(stdout.String(), `"connection":{"state":"unavailable"`) {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunLogoutRequiresExplicitLocalOnlyAndReportsNoRevocation(t *testing.T) {
+	backend := &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}, logoutResult: authstate.LogoutResult{LocalCredentialsRemoved: true}}
+	var stdout, stderr bytes.Buffer
+	if exit := Run(context.Background(), []string{"logout", "--json"}, &stdout, &stderr, backend); exit != ExitUsage || !strings.Contains(stdout.String(), `"code":"local_only_required"`) {
+		t.Fatalf("exit=%d stdout=%q", exit, stdout.String())
+	}
+	stdout.Reset()
+	if exit := Run(context.Background(), []string{"logout", "--local-only", "--json"}, &stdout, &stderr, backend); exit != ExitOK || !strings.Contains(stdout.String(), `"remote_token_revoked":false`) {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunLoginDoesNotExposeBackendErrorOrToken(t *testing.T) {
+	secret := "0123456789abcdef"
+	backend := &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}, err: errors.New("synthetic failure " + secret)}
+	var stdout, stderr bytes.Buffer
+	exit := RunWithInput(context.Background(), []string{"login", "--token-stdin", "--json"}, Input{Reader: strings.NewReader(secret)}, &stdout, &stderr, backend)
+	if exit != ExitNetwork || strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) || !strings.Contains(stdout.String(), `"code":"authentication"`) {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
 }
 

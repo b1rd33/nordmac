@@ -18,4 +18,4 @@ The public command dispatcher still reports `login` as unavailable. The producti
 
 ## Remaining gate
 
-Before public login can be enabled, resolve and authenticate the packaged helper, wire an explicit hidden-input or `--token-stdin` command path, define status/logout and interrupted-replacement recovery, and separately approve the exact live Nord credential-provisioning request. A real token must never be passed in argv or an ordinary environment variable.
+Packaged-helper authentication, command input wiring, and local status/logout recovery were subsequently implemented and are recorded in the [authentication-command validation](auth-commands-2026-08-28.md). The remaining gate is separate approval for the exact live Nord credential-provisioning request and production Keychain write. A real token must never be passed in argv or an ordinary environment variable.

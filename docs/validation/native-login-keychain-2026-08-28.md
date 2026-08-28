@@ -10,13 +10,13 @@ The validation account was fixed to `access-token`; neither the service, account
 
 The Swift helper and Go harness were built into a mode-0700 directory owned by the current user under `/private/tmp`. Both executables were mode 0500. The harness required the helper's canonical fixed filename, validated the package directory name, owner and modes, rejected symlinks/non-regular files, and verified the helper against its expected SHA-256 before execution. The helper was ad-hoc signed for this local validation; this does not replace Developer ID signing or notarization for a release.
 
-The helper's login-validation mode derives the current unprivileged user's fixed `~/Library/Keychains/login.keychain-db`, verifies the home-directory owner, opens that Keychain explicitly, adds through `kSecUseKeychain`, and constrains search/update/delete through `kSecMatchSearchList`. Production service names and arbitrary targets remain unavailable.
+At the time of this gate, the helper's login-validation mode derived the current unprivileged user's fixed `~/Library/Keychains/login.keychain-db`, verified the home-directory owner, opened that Keychain explicitly, added through `kSecUseKeychain`, and constrained search/update/delete through `kSecMatchSearchList`. Production service names and arbitrary targets were unavailable. A later gate added one compile-time production service without invoking it; arbitrary services and targets remain unavailable.
 
 ## Result
 
 The lifecycle completed successfully with eight checks: absent preflight, create, read/compare, replace, read/compare, delete, native not-found verification, and an independent `security find-generic-password` not-found verification. A second independent lookup after the harness also returned item-not-found (status 44).
 
-The temporary package, build caches, and validation item were deleted. No Nord token or NordLynx private key was read or written, no authenticated API request was made, and `nordmac login` remains disabled.
+The temporary package, build caches, and validation item were deleted. No Nord token or NordLynx private key was read or written, and no authenticated API request was made. At the conclusion of this gate, `nordmac login` remained disabled; later command wiring is recorded separately in [auth-commands-2026-08-28.md](auth-commands-2026-08-28.md).
 
 ## Remaining release gate
 

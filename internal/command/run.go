@@ -8,11 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/b1rd33/nordmac/internal/authstate"
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
 	"github.com/b1rd33/nordmac/internal/connectplan"
+	"github.com/b1rd33/nordmac/internal/credentials"
+	"github.com/b1rd33/nordmac/internal/loginflow"
+	"github.com/b1rd33/nordmac/internal/nordauth"
 	"github.com/b1rd33/nordmac/internal/output"
 	"github.com/b1rd33/nordmac/internal/recommend"
+	"github.com/b1rd33/nordmac/internal/tokeninput"
 )
 
 const (
@@ -21,6 +26,8 @@ const (
 	ExitNoMatch   = 4
 	ExitNetwork   = 5
 	ExitPrivilege = 6
+	ExitAuth      = 7
+	ExitBusy      = 8
 )
 
 type Backend interface {
@@ -28,7 +35,23 @@ type Backend interface {
 	Recommend(context.Context, recommend.Query) (RecommendationResult, error)
 }
 
+type Authentication interface {
+	Login(context.Context, []byte) (loginflow.Result, error)
+	CredentialStatus(context.Context) (authstate.Status, error)
+	LogoutLocal(context.Context) (authstate.LogoutResult, error)
+}
+
+type Input struct {
+	Reader   io.Reader
+	FD       int
+	Terminal tokeninput.Terminal
+}
+
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	return RunWithInput(ctx, args, Input{}, stdout, stderr, backend)
+}
+
+func RunWithInput(ctx context.Context, args []string, input Input, stdout, stderr io.Writer, backend Backend) int {
 	if len(args) == 0 {
 		writeUsage(stderr)
 		return ExitUsage
@@ -46,10 +69,180 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend B
 		return runRecommend(ctx, args[1:], stdout, stderr, backend)
 	case "plan":
 		return runPlan(ctx, args[1:], stdout, stderr, backend)
-	case "login", "status", "connect", "disconnect", "reconnect":
+	case "login":
+		return runLogin(ctx, args[1:], input, stdout, stderr, backend)
+	case "status":
+		return runStatus(ctx, args[1:], stdout, stderr, backend)
+	case "logout":
+		return runLogout(ctx, args[1:], stdout, stderr, backend)
+	case "connect", "disconnect", "reconnect":
 		return unavailable(args[0], hasJSON(args[1:]), stdout, stderr)
 	default:
 		return fail(hasJSON(args[1:]), stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown command %q", args[0]))
+	}
+}
+
+type StatusResult struct {
+	Authentication authstate.Status `json:"authentication"`
+	Connection     ConnectionStatus `json:"connection"`
+}
+
+type ConnectionStatus struct {
+	State  string `json:"state"`
+	Reason string `json:"reason"`
+}
+
+func runLogin(ctx context.Context, args []string, input Input, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	stdinMode := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+		case "--token-stdin":
+			if stdinMode {
+				return fail(jsonMode, stdout, stderr, ExitUsage, "usage", "--token-stdin may be specified only once")
+			}
+			stdinMode = true
+		case "--help", "-h":
+			fmt.Fprintln(stdout, "usage: nordmac login [--token-stdin] [--json]")
+			return ExitOK
+		default:
+			return fail(jsonMode, stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown login argument %q", arg))
+		}
+	}
+	authentication, ok := backend.(Authentication)
+	if !ok {
+		return unavailable("login", jsonMode, stdout, stderr)
+	}
+
+	var token []byte
+	var err error
+	if stdinMode {
+		token, err = tokeninput.ReadStdin(input.Reader)
+	} else {
+		token, err = tokeninput.ReadHidden(input.FD, stderr, input.Terminal)
+	}
+	if err != nil {
+		return fail(jsonMode, stdout, stderr, ExitUsage, "invalid_token_input", err.Error())
+	}
+	defer credentials.Wipe(token)
+	result, err := authentication.Login(ctx, token)
+	if err != nil {
+		return failAuthentication(jsonMode, stdout, stderr, err)
+	}
+	if jsonMode {
+		if err := output.JSONSuccess(stdout, result); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	fmt.Fprintf(stdout, "Nord credentials stored for account %d\n", result.AccountID)
+	return ExitOK
+}
+
+func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+		case "--help", "-h":
+			fmt.Fprintln(stdout, "usage: nordmac status [--json]")
+			return ExitOK
+		default:
+			return fail(jsonMode, stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown status argument %q", arg))
+		}
+	}
+	authentication, ok := backend.(Authentication)
+	if !ok {
+		return unavailable("status", jsonMode, stdout, stderr)
+	}
+	status, err := authentication.CredentialStatus(ctx)
+	if err != nil {
+		return failAuthentication(jsonMode, stdout, stderr, err)
+	}
+	result := StatusResult{
+		Authentication: status,
+		Connection: ConnectionStatus{
+			State: "unavailable", Reason: "tunnel commands are not enabled",
+		},
+	}
+	if jsonMode {
+		if err := output.JSONSuccess(stdout, result); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	fmt.Fprintf(stdout, "authentication: %s\nconnection: unavailable\n", status.State)
+	if status.RepairNeeded {
+		fmt.Fprintln(stderr, "nordmac: warning: local credentials are incomplete; run login again or logout --local-only")
+	}
+	return ExitOK
+}
+
+func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	localOnly := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+		case "--local-only":
+			if localOnly {
+				return fail(jsonMode, stdout, stderr, ExitUsage, "usage", "--local-only may be specified only once")
+			}
+			localOnly = true
+		case "--help", "-h":
+			fmt.Fprintln(stdout, "usage: nordmac logout --local-only [--json]")
+			return ExitOK
+		default:
+			return fail(jsonMode, stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown logout argument %q", arg))
+		}
+	}
+	if !localOnly {
+		return fail(jsonMode, stdout, stderr, ExitUsage, "local_only_required", "remote token revocation is not implemented; use --local-only to delete only nordmac's local credentials")
+	}
+	authentication, ok := backend.(Authentication)
+	if !ok {
+		return unavailable("logout", jsonMode, stdout, stderr)
+	}
+	result, err := authentication.LogoutLocal(ctx)
+	if err != nil {
+		return failAuthentication(jsonMode, stdout, stderr, err)
+	}
+	if jsonMode {
+		if err := output.JSONSuccess(stdout, result); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	if result.LocalCredentialsRemoved {
+		fmt.Fprintln(stdout, "local nordmac credentials deleted; the Nord token was not remotely revoked")
+	} else {
+		fmt.Fprintln(stdout, "no local nordmac credentials were present; no remote request was made")
+	}
+	return ExitOK
+}
+
+func failAuthentication(jsonMode bool, stdout, stderr io.Writer, err error) int {
+	switch {
+	case errors.Is(err, nordauth.ErrUnauthorized):
+		return fail(jsonMode, stdout, stderr, ExitAuth, "unauthorized", "Nord access token was rejected")
+	case errors.Is(err, nordauth.ErrForbidden):
+		return fail(jsonMode, stdout, stderr, ExitAuth, "forbidden", "Nord account is not authorized for VPN credentials")
+	case errors.Is(err, nordauth.ErrRateLimited):
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "rate_limited", "Nord credential service rate limit reached")
+	case errors.Is(err, loginflow.ErrCredentialLock), errors.Is(err, authstate.ErrCredentialLock):
+		return fail(jsonMode, stdout, stderr, ExitBusy, "busy", "another credential transaction is active")
+	case errors.Is(err, loginflow.ErrRollbackIncomplete), errors.Is(err, authstate.ErrRollbackIncomplete):
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "credential_recovery_required", "credential rollback was incomplete; inspect status before retrying")
+	case errors.Is(err, loginflow.ErrCredentialTransaction), errors.Is(err, authstate.ErrCredentialTransaction):
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "credential_transaction", "credential transaction failed without exposing secret data")
+	case errors.Is(err, authstate.ErrCredentialRead):
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "credential_read", "could not inspect local credentials")
+	default:
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "authentication", "authentication operation failed")
 	}
 }
 
@@ -293,5 +486,10 @@ Read-only commands:
   recommend <country> [--city <city>] [--server <server>] [--json]
   plan <country> [--city <city>] [--server <server>] [--json]
 
-Planned but unavailable: login, status, connect, disconnect, reconnect`)
+Authentication commands (require an authenticated packaged helper):
+  login [--token-stdin] [--json]
+  status [--json]
+  logout --local-only [--json]
+
+Planned but unavailable: connect, disconnect, reconnect`)
 }

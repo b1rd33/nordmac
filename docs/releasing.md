@@ -13,9 +13,9 @@ Each future `nordmac_<version>_darwin_<architecture>.zip` contains:
 - `nordmac-helper-manifest.json`;
 - `LICENSE` and `README.md`.
 
-The packaging script hashes the already-signed helper and embeds that SHA-256 into the matching CLI at link time. `nordmac version --json` exposes the non-secret digest for installation verification. The future caller also resolves the installed CLI symlink, rejects a group/world-writable helper, and re-hashes the exact `libexec` sibling before use. Development builds have no accepted helper digest.
+The packaging script hashes the already-signed helper and embeds that SHA-256 into the matching CLI at link time. `nordmac version --json` exposes the non-secret digest for installation verification. The caller resolves the installed CLI symlink and accepts only the exact `libexec` sibling when its SHA-256 matches, it and its parent have safe type/mode/ownership, neither is group- or world-writable, and the helper is executable. Development builds have no accepted helper digest.
 
-The packaged helper exposes isolated validation, fixed-service login-Keychain validation, and a distinct fixed production service. The production target accepts only the two compiled credential account names and cannot accept an arbitrary service, account, or Keychain path. Packaging alone does not make `nordmac login` reachable, invoke the production target, authenticate with Nord, or change a tunnel.
+The packaged helper exposes isolated validation, fixed-service login-Keychain validation, and a distinct fixed production service. The production target accepts only the two compiled credential account names and cannot accept an arbitrary service, account, or Keychain path. A correctly packaged CLI can reach the authentication command code, but packaging alone does not invoke it, authenticate with Nord, access Keychain, or change a tunnel.
 
 ## Apple prerequisites
 
