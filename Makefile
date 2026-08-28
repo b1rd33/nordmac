@@ -17,12 +17,12 @@ build:
 	go build -trimpath -o bin/nordmac ./cmd/nordmac
 
 release-check:
-	goreleaser check
+	go test ./...
+	sh -n scripts/package_macos_release.sh
 
 snapshot:
-	goreleaser release --snapshot --clean
+	scripts/package_macos_release.sh snapshot "$(CURDIR)/dist"
 
 clean:
 	rm -f bin/nordmac coverage.out
 	rm -rf dist
-

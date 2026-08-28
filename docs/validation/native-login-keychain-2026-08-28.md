@@ -20,4 +20,4 @@ The temporary package, build caches, and validation item were deleted. No Nord t
 
 ## Remaining release gate
 
-This validates the fixed login-Keychain API boundary, but does not yet ship it. Before enabling login, package Developer ID-signed and notarized architecture-specific helpers in release assets, authenticate the installed helper identity and digest from the Go caller, define upgrade ownership, and separately authorize any real Nord token storage and authenticated credential-provisioning request.
+This validates the fixed login-Keychain API boundary, but does not enable production use. The release pipeline now builds architecture-specific helpers, requires Developer ID signing/notarization for tagged publication, and embeds the signed helper digest in the matching CLI. No signing identity is currently configured and no such release has been published. Before enabling login, complete a real signed release, verify the Homebrew installation relationship, define upgrade ownership, and separately authorize any real Nord token storage and authenticated credential-provisioning request.

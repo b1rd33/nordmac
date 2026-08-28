@@ -28,4 +28,4 @@ These modules appear in the pinned module graph, but `go list -deps` confirms th
 
 ## Distribution rule
 
-The current GoReleaser configuration builds only `cmd/nordmac`; it does not ship the harness or link this backend. Before any release begins linking the backend, add the full applicable dependency notices to the release archive and re-run the module, checksum, and license audit. No NordVPN Linux client source is a dependency.
+The current release packaging builds only `cmd/nordmac` plus the independently authored validation-only Keychain helper; it does not ship the WireGuard harness or link this backend. Before any release begins linking the backend, add the full applicable dependency notices to the release archive and re-run the module, checksum, and license audit. No NordVPN Linux client source is a dependency.

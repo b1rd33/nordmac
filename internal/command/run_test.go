@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
 	"github.com/b1rd33/nordmac/internal/recommend"
 )
@@ -110,6 +111,17 @@ func TestRunVersionNeedsNoBackend(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := Run(context.Background(), []string{"--version"}, &stdout, &stderr, nil)
 	if exit != ExitOK || !strings.HasPrefix(stdout.String(), "nordmac ") || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunVersionJSONIncludesPackagedHelperDigest(t *testing.T) {
+	previous := buildinfo.HelperSHA256
+	buildinfo.HelperSHA256 = strings.Repeat("a", 64)
+	t.Cleanup(func() { buildinfo.HelperSHA256 = previous })
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"version", "--json"}, &stdout, &stderr, nil)
+	if exit != ExitOK || !strings.Contains(stdout.String(), `"helper_sha256":"`+strings.Repeat("a", 64)+`"`) || stderr.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
 }

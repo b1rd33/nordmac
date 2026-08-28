@@ -9,7 +9,7 @@ Use the official MIT-licensed `wireguard-go` packages directly for the first mac
 
 Do not shell out to `wg-quick`. Its Darwin implementation owns routes, DNS, and a background route monitor, which would bypass nordmac's transaction journal and compare-before-restore rules. A standalone `wireguard-go` process would also complicate exact process/interface ownership and secret transport without removing the need for a privileged nordmac helper.
 
-The backend is deliberately unwired from the public CLI. The separate `nordmac-wg-harness` executable is also excluded from GoReleaser. Its only permitted live action is creating one userspace `utun`, configuring one literal IPv4 controlled-peer endpoint, waiting at most 60 seconds for a fresh bidirectional handshake, and closing the device. It cannot configure an interface address, route, DNS, PF, Nord credential, persistence, or arbitrary hook.
+The backend is deliberately unwired from the public CLI. The separate `nordmac-wg-harness` executable is also excluded from the release pipeline. Its only permitted live action is creating one userspace `utun`, configuring one literal IPv4 controlled-peer endpoint, waiting at most 60 seconds for a fresh bidirectional handshake, and closing the device. It cannot configure an interface address, route, DNS, PF, Nord credential, persistence, or arbitrary hook.
 
 ## Secret and ownership boundary
 

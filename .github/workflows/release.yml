@@ -9,8 +9,15 @@ permissions:
   contents: write
 
 jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
+  signed-macos-release:
+    runs-on: macos-15
+    env:
+      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -19,10 +26,82 @@ jobs:
         with:
           go-version: "1.27.x"
           cache: true
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      - name: Require signing and notarization credentials
+        run: |
+          test -n "$APPLE_DEVELOPER_ID_P12_BASE64"
+          test -n "$APPLE_DEVELOPER_ID_P12_PASSWORD"
+          test -n "$APPLE_SIGNING_IDENTITY"
+          test -n "$APPLE_API_KEY_P8_BASE64"
+          test -n "$APPLE_API_KEY_ID"
+          test -n "$APPLE_API_ISSUER_ID"
+          case "$APPLE_SIGNING_IDENTITY" in
+            "Developer ID Application:"*) ;;
+            *) exit 1 ;;
+          esac
+      - name: Import ephemeral Developer ID identity
+        run: |
+          keychain_path="$RUNNER_TEMP/nordmac-release.keychain-db"
+          certificate_path="$RUNNER_TEMP/nordmac-developer-id.p12"
+          keychain_password="$(uuidgen)$(uuidgen)"
+          printf 'NORDMAC_RELEASE_KEYCHAIN=%s\n' "$keychain_path" >> "$GITHUB_ENV"
+          printf 'NORDMAC_NOTARY_KEY=%s\n' "$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8" >> "$GITHUB_ENV"
+          printf '%s' "$APPLE_DEVELOPER_ID_P12_BASE64" | /usr/bin/base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+      - name: Build and sign architecture-specific archives
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NORDMAC_SIGNING_MODE: developer-id
+          NORDMAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          scripts/package_macos_release.sh "$version" "$RUNNER_TEMP/nordmac-dist"
+      - name: Submit signed archives to Apple notary service
+        run: |
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | /usr/bin/base64 -D > "$NORDMAC_NOTARY_KEY"
+          chmod 600 "$NORDMAC_NOTARY_KEY"
+          for archive in "$RUNNER_TEMP"/nordmac-dist/nordmac_*.zip; do
+            xcrun notarytool submit "$archive" \
+              --key "$NORDMAC_NOTARY_KEY" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER_ID" \
+              --wait
+          done
+      - name: Verify signed release contents
+        run: |
+          for archive in "$RUNNER_TEMP"/nordmac-dist/nordmac_*.zip; do
+            verify_directory="$(mktemp -d "$RUNNER_TEMP/nordmac-verify.XXXXXXXX")"
+            ditto -x -k "$archive" "$verify_directory"
+            helper_sha256="$(shasum -a 256 "$verify_directory/libexec/nordmac-keychain-helper" | awk '{print $1}')"
+            embedded_sha256="$("$verify_directory/nordmac" version --json | jq -r '.data.helper_sha256')"
+            manifest_sha256="$(jq -r '.helper_sha256' "$verify_directory/nordmac-helper-manifest.json")"
+            test "$helper_sha256" = "$embedded_sha256"
+            test "$helper_sha256" = "$manifest_sha256"
+            codesign --verify --strict --verbose=2 "$verify_directory/nordmac"
+            codesign --verify --strict --verbose=2 "$verify_directory/libexec/nordmac-keychain-helper"
+            spctl --assess --type execute --verbose=2 "$verify_directory/nordmac"
+            spctl --assess --type execute --verbose=2 "$verify_directory/libexec/nordmac-keychain-helper"
+            "$verify_directory/nordmac" --version
+            find "$verify_directory" -depth -delete
+          done
+          (cd "$RUNNER_TEMP/nordmac-dist" && shasum -a 256 -c checksums.txt)
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP"/nordmac-dist/nordmac_*.zip \
+            "$RUNNER_TEMP/nordmac-dist/checksums.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "nordmac $GITHUB_REF_NAME"
+      - name: Remove ephemeral signing material
+        if: always()
+        run: |
+          if [ -n "${NORDMAC_RELEASE_KEYCHAIN:-}" ]; then security delete-keychain "$NORDMAC_RELEASE_KEYCHAIN" || true; fi
+          if [ -n "${NORDMAC_NOTARY_KEY:-}" ]; then rm -f "$NORDMAC_NOTARY_KEY"; fi
+          rm -f "$RUNNER_TEMP/nordmac-developer-id.p12"

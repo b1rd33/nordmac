@@ -36,8 +36,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend B
 
 	switch args[0] {
 	case "version", "--version":
-		fmt.Fprintln(stdout, buildinfo.String())
-		return ExitOK
+		return runVersion(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		writeUsage(stdout)
 		return ExitOK
@@ -52,6 +51,21 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend B
 	default:
 		return fail(hasJSON(args[1:]), stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown command %q", args[0]))
 	}
+}
+
+func runVersion(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stdout, buildinfo.String())
+		return ExitOK
+	}
+	if len(args) == 1 && args[0] == "--json" {
+		if err := output.JSONSuccess(stdout, buildinfo.Current()); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	return fail(hasJSON(args), stdout, stderr, ExitUsage, "usage", "usage: nordmac version [--json]")
 }
 
 type PlanResult struct {
@@ -274,6 +288,7 @@ func writeUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `usage: nordmac <command> [options]
 
 Read-only commands:
+  version [--json]
   countries [--json] [--refresh]
   recommend <country> [--city <city>] [--server <server>] [--json]
   plan <country> [--city <city>] [--server <server>] [--json]

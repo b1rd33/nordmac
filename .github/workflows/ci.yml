@@ -48,3 +48,19 @@ jobs:
           cache: true
       - name: Build and validate native Keychain boundary
         run: scripts/test_native_keychain.sh
+      - name: Build and inspect ad-hoc release snapshot
+        run: |
+          scripts/package_macos_release.sh ci "$RUNNER_TEMP/nordmac-dist"
+          for archive in "$RUNNER_TEMP"/nordmac-dist/nordmac_*.zip; do
+            verify_directory="$(mktemp -d "$RUNNER_TEMP/nordmac-ci-verify.XXXXXXXX")"
+            ditto -x -k "$archive" "$verify_directory"
+            helper_sha256="$(shasum -a 256 "$verify_directory/libexec/nordmac-keychain-helper" | awk '{print $1}')"
+            embedded_sha256="$("$verify_directory/nordmac" version --json | jq -r '.data.helper_sha256')"
+            manifest_sha256="$(jq -r '.helper_sha256' "$verify_directory/nordmac-helper-manifest.json")"
+            test "$helper_sha256" = "$embedded_sha256"
+            test "$helper_sha256" = "$manifest_sha256"
+            codesign --verify --strict --verbose=2 "$verify_directory/nordmac"
+            codesign --verify --strict --verbose=2 "$verify_directory/libexec/nordmac-keychain-helper"
+            find "$verify_directory" -depth -delete
+          done
+          (cd "$RUNNER_TEMP/nordmac-dist" && shasum -a 256 -c checksums.txt)

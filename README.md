@@ -44,7 +44,7 @@ The `login`, `status`, `connect`, `disconnect`, and `reconnect` command names cu
 
 The credential foundation uses fixed Keychain account names and keeps secrets out of process arguments. Its automated tests use synthetic values, a fake runner, and local HTTP servers; they do not touch the user's Keychain or Nord's authenticated API. Live synthetic validation found that Apple's `security(1)` stdin write can return success while storing an empty value, so `Store.Put` now fails closed until it is replaced by a native or signed boundary. See [ADR 0002](docs/adr/0002-authentication-contract.md) and the [Keychain validation record](docs/validation/keychain-2026-08-28.md).
 
-An unreleased native Security framework helper has passed create/read/replace/read/delete validation against both an explicit temporary Keychain and one approved synthetic item in the user's login Keychain. The login test used a fixed validation-only service and left no item behind. Real Nord credentials, authenticated requests, and the production CLI path remain disabled, and the helper is not included in release archives. See the [isolated](docs/validation/native-keychain-2026-08-28.md) and [login Keychain](docs/validation/native-login-keychain-2026-08-28.md) validation records.
+An unreleased native Security framework helper has passed create/read/replace/read/delete validation against both an explicit temporary Keychain and one approved synthetic item in the user's login Keychain. The login test used a fixed validation-only service and left no item behind. Real Nord credentials, authenticated requests, and the production CLI path remain disabled. The next signed release is designed to include the validation-only helper beside the CLI with its SHA-256 embedded in that architecture's CLI; the existing v0.1.0 release does not contain it. See the [isolated](docs/validation/native-keychain-2026-08-28.md) and [login Keychain](docs/validation/native-login-keychain-2026-08-28.md) validation records.
 
 The tunnel core records intent before each planned mutation, pins the endpoint before tunnel routes, restores in reverse order, and retains incomplete rollback evidence. Unreleased approval-gated harnesses validated userspace WireGuard and one scoped route against controlled peers; the adapters remain disconnected from shipped commands. See [ADR 0003](docs/adr/0003-tunnel-transaction-core.md), [ADR 0005](docs/adr/0005-scoped-route-gate.md), and the [Gate 3 evidence](docs/validation/scoped-route-2026-08-27.md).
 
@@ -58,7 +58,7 @@ Install the latest release from the public tap:
 brew install --cask b1rd33/tap/nordmac
 ```
 
-Release archives include Apple Silicon and Intel macOS binaries plus SHA-256 checksums. See the [v0.1.0 release](https://github.com/b1rd33/nordmac/releases/tag/v0.1.0) or [docs/releasing.md](docs/releasing.md) for the release pipeline.
+The existing v0.1.0 release contains unsigned Apple Silicon and Intel binaries. Future releases are gated on Developer ID signing and Apple notarization and use architecture-specific ZIP archives containing the CLI and its fixed validation-only Keychain helper. See the [v0.1.0 release](https://github.com/b1rd33/nordmac/releases/tag/v0.1.0) or [docs/releasing.md](docs/releasing.md) for the release pipeline.
 
 ## License and affiliation
 

@@ -30,7 +30,7 @@ The route adapter parses numeric `route get` output, rejects non-contiguous mask
 
 ## Harness and crash recovery
 
-`cmd/nordmac-scoped-harness` is excluded from GoReleaser. It requires an explicit acknowledgement, session id, literal non-loopback endpoint, tunnel `/32`, private peer address, one containing private scoped prefix, and a duration of at most 30 seconds. It reads keys only through the fixed binary secret frame.
+`cmd/nordmac-scoped-harness` is excluded from the release pipeline. It requires an explicit acknowledgement, session id, literal non-loopback endpoint, tunnel `/32`, private peer address, one containing private scoped prefix, and a duration of at most 30 seconds. It reads keys only through the fixed binary secret frame.
 
 State is stored at the fixed, validated path `/private/tmp/nordmac-gate3-<session>`. Normal cleanup removes it only after the journal is gone. `--recover-session <session>` needs no keys and replays journaled route cleanup after a crash; incomplete cleanup retains the journal instead of deleting evidence.
 
