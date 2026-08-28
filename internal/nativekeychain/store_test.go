@@ -31,6 +31,7 @@ func TestPutKeepsSecretOutOfArguments(t *testing.T) {
 	store := Store{
 		Runner: runner, Helper: "/private/tmp/nordmac-keychain-native-helper",
 		Keychain: "/private/tmp/nordmac-keychain-native-validation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/validation.keychain-db",
+		Target:   "isolated",
 	}
 	secret := []byte("synthetic-secret")
 	if err := store.Put(context.Background(), credentials.AccessToken, secret); err != nil {
@@ -43,6 +44,54 @@ func TestPutKeepsSecretOutOfArguments(t *testing.T) {
 		t.Fatal("secret appeared in helper arguments")
 	}
 	want := []string{"put", "access-token", "--validation-keychain", store.Keychain}
+	if !reflect.DeepEqual(runner.calls[0].args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.calls[0].args, want)
+	}
+}
+
+func TestLoginValidationUsesFixedTarget(t *testing.T) {
+	store, err := NewLoginValidation("/private/tmp/nordmac-keychain-native-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	store.Runner = runner
+	if err := store.Put(context.Background(), credentials.AccessToken, []byte("synthetic-secret")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"put", "access-token", "--login-keychain-validation"}
+	if !reflect.DeepEqual(runner.calls[0].args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.calls[0].args, want)
+	}
+}
+
+func TestCreateValidationUsesCreateOnlyOperation(t *testing.T) {
+	store, err := NewLoginValidation("/private/tmp/nordmac-keychain-native-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	store.Runner = runner
+	if err := store.CreateValidation(context.Background(), credentials.AccessToken, []byte("synthetic-secret")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"create", "access-token", "--login-keychain-validation"}
+	if !reflect.DeepEqual(runner.calls[0].args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.calls[0].args, want)
+	}
+}
+
+func TestReplaceValidationUsesUpdateOnlyOperation(t *testing.T) {
+	store, err := NewLoginValidation("/private/tmp/nordmac-keychain-native-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	store.Runner = runner
+	if err := store.ReplaceValidation(context.Background(), credentials.AccessToken, []byte("synthetic-secret")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"replace", "access-token", "--login-keychain-validation"}
 	if !reflect.DeepEqual(runner.calls[0].args, want) {
 		t.Fatalf("args = %#v, want %#v", runner.calls[0].args, want)
 	}

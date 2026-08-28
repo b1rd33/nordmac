@@ -84,13 +84,13 @@ func run() (retErr error) {
 		return err
 	}
 	defer credentials.Wipe(second)
-	if err := store.Put(ctx, credentials.AccessToken, first); err != nil {
+	if err := store.CreateValidation(ctx, credentials.AccessToken, first); err != nil {
 		return err
 	}
 	if err := verify(ctx, store, first); err != nil {
 		return err
 	}
-	if err := store.Put(ctx, credentials.AccessToken, second); err != nil {
+	if err := store.ReplaceValidation(ctx, credentials.AccessToken, second); err != nil {
 		return err
 	}
 	if err := verify(ctx, store, second); err != nil {

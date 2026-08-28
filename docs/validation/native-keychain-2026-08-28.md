@@ -2,7 +2,7 @@
 
 ## Boundary
 
-The replacement boundary consists of a Swift helper using macOS Security framework item APIs and a Go adapter that exchanges raw secret bytes only through stdin/stdout. The helper accepts fixed credential kinds and the validation-only service `com.github.b1rd33.nordmac.validation`. Its only enabled target is an explicitly named Keychain under `/private/tmp/nordmac-keychain-native-validation-<session>/validation.keychain-db`, in a mode-0700 directory owned by the caller. A production/login-Keychain target is deliberately unavailable.
+At the time of this isolated gate, the replacement boundary consisted of a Swift helper using macOS Security framework item APIs and a Go adapter that exchanged raw secret bytes only through stdin/stdout. The helper accepted fixed credential kinds and the validation-only service `com.github.b1rd33.nordmac.validation`. Its only enabled target was an explicitly named Keychain under `/private/tmp/nordmac-keychain-native-validation-<session>/validation.keychain-db`, in a mode-0700 directory owned by the caller. The later fixed-service login-Keychain gate is recorded separately in [native-login-keychain-2026-08-28.md](native-login-keychain-2026-08-28.md).
 
 The helper uses `kSecUseKeychain` to add to the explicit Keychain and `kSecMatchSearchList` to constrain reads, updates, and deletion to that same Keychain. It never accepts a service name, account name, arbitrary path, secret argument, environment secret, or logging option.
 

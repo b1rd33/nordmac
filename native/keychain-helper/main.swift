@@ -2,15 +2,46 @@ import Darwin
 import Foundation
 import Security
 
-private let validationService = "com.github.b1rd33.nordmac.validation"
+private let isolatedValidationService = "com.github.b1rd33.nordmac.validation"
+private let loginValidationService = "com.github.b1rd33.nordmac.validation.native"
 private let sessionPattern = try! NSRegularExpression(pattern: "^nordmac-keychain-native-validation-[a-f0-9]{32}$")
+
+private struct Target {
+    let keychain: SecKeychain
+    let service: String
+}
 
 private func fail(_ message: String, status: Int32 = 1) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(status)
 }
 
-private func validationKeychain(_ arguments: [String]) -> SecKeychain {
+private func openKeychain(_ path: String, description: String) -> SecKeychain {
+    var keychain: SecKeychain?
+    let status = SecKeychainOpen(path, &keychain)
+    guard status == errSecSuccess, let keychain else {
+        fail("open \(description) Keychain: \(status)")
+    }
+    return keychain
+}
+
+private func validationTarget(_ arguments: [String]) -> Target {
+    if arguments.count == 4, arguments[3] == "--login-keychain-validation" {
+        guard getuid() != 0, geteuid() != 0 else { fail("login Keychain validation cannot run as root") }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard home.hasPrefix("/Users/"), !home.contains("//"), !home.contains("/./"), !home.contains("/../") else {
+            fail("invalid login Keychain home")
+        }
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: home)
+            let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
+            guard owner == getuid() else { fail("login Keychain home ownership is invalid") }
+        } catch {
+            fail("inspect login Keychain home")
+        }
+        let path = home + "/Library/Keychains/login.keychain-db"
+        return Target(keychain: openKeychain(path, description: "login"), service: loginValidationService)
+    }
     guard arguments.count == 5, arguments[3] == "--validation-keychain" else {
         fail("production Keychain target is disabled")
     }
@@ -37,25 +68,20 @@ private func validationKeychain(_ arguments: [String]) -> SecKeychain {
     } catch {
         fail("inspect validation Keychain directory")
     }
-    var keychain: SecKeychain?
-    let status = SecKeychainOpen(path, &keychain)
-    guard status == errSecSuccess, let keychain else {
-        fail("open validation Keychain: \(status)")
-    }
-    return keychain
+    return Target(keychain: openKeychain(path, description: "validation"), service: isolatedValidationService)
 }
 
-private func baseQuery(account: String) -> [String: Any] {
+private func baseQuery(account: String, service: String) -> [String: Any] {
     [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: validationService,
+        kSecAttrService as String: service,
         kSecAttrAccount as String: account,
     ]
 }
 
-private func searchQuery(account: String, keychain: SecKeychain) -> [String: Any] {
-    var query = baseQuery(account: account)
-    query[kSecMatchSearchList as String] = [keychain]
+private func searchQuery(account: String, target: Target) -> [String: Any] {
+    var query = baseQuery(account: account, service: target.service)
+    query[kSecMatchSearchList as String] = [target.keychain]
     return query
 }
 
@@ -66,18 +92,32 @@ let account = arguments[2]
 guard account == "access-token" || account == "nordlynx-private-key" else {
     fail("invalid credential kind")
 }
-let keychain = validationKeychain(arguments)
-let query = searchQuery(account: account, keychain: keychain)
+private let target = validationTarget(arguments)
+private let query = searchQuery(account: account, target: target)
 
 switch operation {
+case "create":
+    let secret = FileHandle.standardInput.readDataToEndOfFile()
+    guard !secret.isEmpty, secret.count <= 4096 else { fail("invalid secret length") }
+    var add = baseQuery(account: account, service: target.service)
+    add[kSecUseKeychain as String] = target.keychain
+    add[kSecValueData as String] = secret
+    let status = SecItemAdd(add as CFDictionary, nil)
+    guard status == errSecSuccess else { fail("create failed: \(status)") }
+case "replace":
+    let secret = FileHandle.standardInput.readDataToEndOfFile()
+    guard !secret.isEmpty, secret.count <= 4096 else { fail("invalid secret length") }
+    let update = [kSecValueData as String: secret] as CFDictionary
+    let status = SecItemUpdate(query as CFDictionary, update)
+    guard status == errSecSuccess else { fail("replace failed: \(status)") }
 case "put":
     let secret = FileHandle.standardInput.readDataToEndOfFile()
     guard !secret.isEmpty, secret.count <= 4096 else { fail("invalid secret length") }
     let update = [kSecValueData as String: secret] as CFDictionary
     var status = SecItemUpdate(query as CFDictionary, update)
     if status == errSecItemNotFound {
-        var add = baseQuery(account: account)
-        add[kSecUseKeychain as String] = keychain
+        var add = baseQuery(account: account, service: target.service)
+        add[kSecUseKeychain as String] = target.keychain
         add[kSecValueData as String] = secret
         status = SecItemAdd(add as CFDictionary, nil)
     }
