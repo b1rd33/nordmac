@@ -44,6 +44,8 @@ The `login`, `status`, `connect`, `disconnect`, and `reconnect` command names cu
 
 The credential foundation uses fixed Keychain account names and keeps secrets out of process arguments. Its automated tests use synthetic values, a fake runner, and local HTTP servers; they do not touch the user's Keychain or Nord's authenticated API. Live synthetic validation found that Apple's `security(1)` stdin write can return success while storing an empty value, so `Store.Put` now fails closed until it is replaced by a native or signed boundary. See [ADR 0002](docs/adr/0002-authentication-contract.md) and the [Keychain validation record](docs/validation/keychain-2026-08-28.md).
 
+An unreleased native Security framework helper has now passed create/read/replace/read/delete validation against an explicit temporary Keychain. Its production target remains disabled and it is not included in release archives. See the [native Keychain validation record](docs/validation/native-keychain-2026-08-28.md).
+
 The tunnel core records intent before each planned mutation, pins the endpoint before tunnel routes, restores in reverse order, and retains incomplete rollback evidence. Unreleased approval-gated harnesses validated userspace WireGuard and one scoped route against controlled peers; the adapters remain disconnected from shipped commands. See [ADR 0003](docs/adr/0003-tunnel-transaction-core.md), [ADR 0005](docs/adr/0005-scoped-route-gate.md), and the [Gate 3 evidence](docs/validation/scoped-route-2026-08-27.md).
 
 The current `/v1/servers` endpoints are the replacement family Nord pointed users to after deprecating older endpoints; nevertheless, they remain undocumented and are treated as unstable. See [ADR 0001](docs/adr/0001-public-api.md).

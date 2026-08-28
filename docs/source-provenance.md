@@ -45,6 +45,10 @@ This comparison is evidence of independent authorship, not a legal opinion. Futu
 
 The official Linux client was reviewed read-only at commit `d49b7d14715a80e320bae55944727612cac98c9f` to confirm factual interoperability parameters for `nordmac plan`: the credential endpoint path and bearer transport, response field name, tunnel address, WireGuard port and allowed IP, and default DNS addresses. `internal/connectplan` was independently written from those facts and contains no copied Nord control flow, implementation, or test data. The generated manifest identifies the pinned reference and remains explicitly blocked from live use.
 
+## Native Keychain boundary
+
+The Swift helper under `native/keychain-helper` was independently written from Apple Security framework documentation for generic-password items, `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete`, `kSecUseKeychain`, and `kSecMatchSearchList`. It contains no Nord or third-party implementation. The helper is validation-only, is not present in release archives, and has no enabled login-Keychain target.
+
 ## Names and affiliation
 
 NordVPN and NordLynx are names associated with Nord Security. This project is unofficial, is not endorsed by or affiliated with Nord Security, and makes no claim to those marks. References are descriptive of interoperability targets.
