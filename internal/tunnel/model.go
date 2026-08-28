@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const JournalSchemaVersion = 2
+const JournalSchemaVersion = 3
 
 var (
 	sessionIDPattern   = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -58,8 +58,9 @@ const (
 )
 
 // Plan is the non-secret, fully validated input accepted by the future helper.
-// IPv6 remains deliberately unsupported. ScopedIPv4 is the only policy allowed
-// by the Gate 3 harness; FullIPv4 remains approval-gated future work.
+// FullIPv4 rejects IPv6 while connected so the IPv4 tunnel cannot leak IPv6.
+// ScopedIPv4 is the only policy allowed by the Gate 3 harness; FullIPv4 remains
+// approval-gated future work.
 type Plan struct {
 	SessionID         string         `json:"session_id"`
 	OwnerUID          int            `json:"owner_uid"`
@@ -69,6 +70,7 @@ type Plan struct {
 	TunnelAddress     netip.Prefix   `json:"tunnel_address"`
 	TunnelMTU         int            `json:"tunnel_mtu"`
 	TunnelDNS         []netip.Addr   `json:"tunnel_dns"`
+	DNSService        string         `json:"dns_service,omitempty"`
 	RoutePolicy       RoutePolicy    `json:"route_policy"`
 	ScopedRoutes      []netip.Prefix `json:"scoped_routes,omitempty"`
 	PeerFingerprint   string         `json:"peer_public_key_fingerprint"`
@@ -141,6 +143,8 @@ func (plan Plan) TunnelRoutes() []Route {
 	return []Route{
 		{Destination: netip.MustParsePrefix("0.0.0.0/1")},
 		{Destination: netip.MustParsePrefix("128.0.0.0/1")},
+		{Destination: netip.MustParsePrefix("::/1"), Interface: "lo0", Reject: true},
+		{Destination: netip.MustParsePrefix("8000::/1"), Interface: "lo0", Reject: true},
 	}
 }
 
@@ -155,8 +159,11 @@ func (plan Plan) validatePolicy() error {
 		if len(plan.TunnelDNS) == 0 || len(plan.TunnelDNS) > 4 {
 			return errors.New("full IPv4 policy requires one to four DNS servers")
 		}
+		if len(plan.DNSService) == 0 || len(plan.DNSService) > 256 || hasControl(plan.DNSService) {
+			return errors.New("full IPv4 policy requires a fixed DNS service")
+		}
 	case RoutePolicyScopedIPv4:
-		if len(plan.TunnelDNS) != 0 {
+		if len(plan.TunnelDNS) != 0 || plan.DNSService != "" {
 			return errors.New("scoped IPv4 policy must not change DNS")
 		}
 		if len(plan.ScopedRoutes) == 0 || len(plan.ScopedRoutes) > 4 {
@@ -183,24 +190,28 @@ func (plan Plan) validatePolicy() error {
 }
 
 func (plan Plan) DNSConfig() DNSConfig {
-	return DNSConfig{Servers: slices.Clone(plan.TunnelDNS)}
+	return DNSConfig{ServiceID: plan.DNSService, Servers: slices.Clone(plan.TunnelDNS)}
 }
 
 type Route struct {
 	Destination netip.Prefix `json:"destination"`
 	Gateway     netip.Addr   `json:"gateway,omitempty"`
 	Interface   string       `json:"interface,omitempty"`
+	Reject      bool         `json:"reject,omitempty"`
 }
 
 func (route Route) Validate() error {
-	if !route.Destination.IsValid() || !route.Destination.Addr().Is4() || route.Destination != route.Destination.Masked() {
-		return errors.New("route destination must be a canonical IPv4 prefix")
+	if !route.Destination.IsValid() || route.Destination != route.Destination.Masked() {
+		return errors.New("route destination must be a canonical IP prefix")
 	}
-	if route.Gateway.IsValid() && (!route.Gateway.Is4() || route.Gateway.IsUnspecified()) {
-		return errors.New("route gateway must be a usable IPv4 address")
+	if route.Gateway.IsValid() && (route.Gateway.BitLen() != route.Destination.Addr().BitLen() || route.Gateway.IsUnspecified()) {
+		return errors.New("route gateway must be a usable address in the destination family")
 	}
 	if route.Interface != "" && !interfacePattern.MatchString(route.Interface) {
 		return errors.New("route interface is invalid")
+	}
+	if route.Reject && (!route.Destination.Addr().Is6() || route.Gateway.IsValid() || route.Interface != "lo0") {
+		return errors.New("reject routes must be IPv6 routes through lo0 without a gateway")
 	}
 	return nil
 }
@@ -221,8 +232,37 @@ type DNSSnapshot struct {
 }
 
 type DNSConfig struct {
+	ServiceID     string       `json:"service_id"`
 	Servers       []netip.Addr `json:"servers"`
 	SearchDomains []string     `json:"search_domains,omitempty"`
+}
+
+func (config DNSConfig) Validate() error {
+	if len(config.ServiceID) == 0 || len(config.ServiceID) > 256 || hasControl(config.ServiceID) {
+		return errors.New("DNS service id is invalid")
+	}
+	if len(config.Servers) == 0 || len(config.Servers) > 8 {
+		return errors.New("DNS config requires one to eight servers")
+	}
+	seenServers := map[netip.Addr]struct{}{}
+	for _, server := range config.Servers {
+		if !server.IsValid() || server.IsUnspecified() || server.IsMulticast() {
+			return errors.New("DNS config contains an invalid server")
+		}
+		if _, exists := seenServers[server]; exists {
+			return errors.New("DNS config servers must be unique")
+		}
+		seenServers[server] = struct{}{}
+	}
+	if len(config.SearchDomains) > 32 {
+		return errors.New("DNS config contains too many search domains")
+	}
+	for _, domain := range config.SearchDomains {
+		if len(domain) == 0 || len(domain) > 253 || hasControl(domain) || strings.ContainsAny(domain, " \t") {
+			return errors.New("DNS config contains an invalid search domain")
+		}
+	}
+	return nil
 }
 
 type DeviceSpec struct {
@@ -345,7 +385,9 @@ func (journal Journal) Validate() error {
 		expectedRoutes := journal.Plan.TunnelRoutes()
 		for index := 2; index < min(len(journal.Entries), 2+len(expectedRoutes)); index++ {
 			expected := expectedRoutes[index-2]
-			expected.Interface = journal.Device.Interface
+			if !expected.Reject {
+				expected.Interface = journal.Device.Interface
+			}
 			if *journal.Entries[index].Route != expected {
 				return fmt.Errorf("journal tunnel route %d does not match its plan", index-2)
 			}
@@ -400,8 +442,8 @@ func validatePreimages(journal Journal) error {
 	if len(journal.DNSBefore.Revision) == 0 || len(journal.DNSBefore.Revision) > 128 || hasControl(journal.DNSBefore.Revision) {
 		return errors.New("DNS pre-image revision is invalid")
 	}
-	if len(journal.DNSBefore.Services) == 0 || len(journal.DNSBefore.Services) > 32 {
-		return errors.New("DNS pre-image service count is invalid")
+	if len(journal.DNSBefore.Services) != 1 || journal.DNSBefore.Services[0].ServiceID != journal.Plan.DNSService {
+		return errors.New("DNS pre-image must contain exactly the planned service")
 	}
 	seenServices := map[string]struct{}{}
 	for _, service := range journal.DNSBefore.Services {

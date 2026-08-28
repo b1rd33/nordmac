@@ -18,7 +18,7 @@ func TestBuildProducesFailClosedCandidate(t *testing.T) {
 	if manifest.ReadyForLiveTest || manifest.Endpoint.Port != 51820 || manifest.Endpoint.Hostname != "de1234.nordvpn.com" {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
-	if len(manifest.WireGuard.RouteMutations) != 3 || len(manifest.DNS) != 2 || len(manifest.Blockers) == 0 {
+	if len(manifest.WireGuard.RouteMutations) != 5 || len(manifest.DNS) != 2 || len(manifest.Blockers) == 0 {
 		t.Fatalf("incomplete manifest: %#v", manifest)
 	}
 	if len(manifest.WireGuard.PeerPublicKeyFingerprint) != 64 || strings.Contains(manifest.WireGuard.PeerPublicKeyFingerprint, "=") {

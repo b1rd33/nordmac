@@ -60,6 +60,18 @@ func TestConflictCheckerRejectsExistingVPNRoutes(t *testing.T) {
 			t.Fatal("utun default accepted")
 		}
 	})
+	t.Run("IPv6 reject collision in full policy", func(t *testing.T) {
+		fullPlan := plan
+		fullPlan.RoutePolicy = tunnel.RoutePolicyFullIPv4
+		runner := &fakeRunner{results: []runnerResult{
+			{output: defaultRouteOutput}, {output: defaultRouteOutput}, {output: defaultRouteOutput},
+			{output: "destination: ::\nmask: 8000::\ninterface: lo0\nflags: <UP,REJECT>\n"},
+		}}
+		checker := ConflictChecker{Routes: RouteManager{Runner: runner}}
+		if err := checker.Check(context.Background(), fullPlan); err == nil {
+			t.Fatal("existing IPv6 reject route accepted")
+		}
+	})
 }
 
 func TestPingerUsesBoundedNumericCommand(t *testing.T) {

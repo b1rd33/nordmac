@@ -60,6 +60,13 @@ func (manager RouteManager) Add(ctx context.Context, route tunnel.Route) error {
 	if _, err := manager.run(ctx, arguments...); err != nil {
 		return fmt.Errorf("add route %s: %w", route.Destination, err)
 	}
+	current, found, err := manager.inspectExact(ctx, route.Destination)
+	if err != nil {
+		return fmt.Errorf("verify added route %s: %w", route.Destination, err)
+	}
+	if !found || current.Interface != route.Interface || current.Reject != route.Reject || route.Gateway.IsValid() && current.Gateway != route.Gateway {
+		return fmt.Errorf("%w: added route %s is not owned as planned", ErrRouteConflict, route.Destination)
+	}
 	return nil
 }
 
@@ -74,7 +81,7 @@ func (manager RouteManager) Remove(ctx context.Context, route tunnel.Route) erro
 	if !found {
 		return nil
 	}
-	if current.Interface != route.Interface || route.Gateway.IsValid() && current.Gateway != route.Gateway {
+	if current.Interface != route.Interface || current.Reject != route.Reject || route.Gateway.IsValid() && current.Gateway != route.Gateway {
 		return fmt.Errorf("%w: refuse to remove changed route %s", ErrRouteConflict, route.Destination)
 	}
 	arguments, err := routeArguments("delete", route)
@@ -88,20 +95,24 @@ func (manager RouteManager) Remove(ctx context.Context, route tunnel.Route) erro
 }
 
 func (manager RouteManager) LookupExact(ctx context.Context, destination netip.Prefix) (tunnel.Route, bool, error) {
-	if !destination.IsValid() || !destination.Addr().Is4() || destination != destination.Masked() {
+	if !destination.IsValid() || destination != destination.Masked() {
 		return tunnel.Route{}, false, errors.New("invalid exact route lookup")
 	}
 	return manager.inspectExact(ctx, destination)
 }
 
 func (manager RouteManager) inspectExact(ctx context.Context, destination netip.Prefix) (tunnel.Route, bool, error) {
+	family := "-inet"
+	if destination.Addr().Is6() {
+		family = "-inet6"
+	}
 	kind := "-net"
 	destinationArgument := destination.String()
-	if destination.Bits() == 32 {
+	if destination.Bits() == destination.Addr().BitLen() {
 		kind = "-host"
 		destinationArgument = destination.Addr().String()
 	}
-	output, err := manager.run(ctx, "get", "-inet", kind, destinationArgument)
+	output, err := manager.run(ctx, "get", family, kind, destinationArgument)
 	if err != nil {
 		if routeMissing(err.Error()) {
 			return tunnel.Route{}, false, nil
@@ -109,14 +120,16 @@ func (manager RouteManager) inspectExact(ctx context.Context, destination netip.
 		return tunnel.Route{}, false, fmt.Errorf("inspect route %s: %w", destination, err)
 	}
 	fields := parseRouteFields(output)
-	prefix, err := parseRoutePrefix(fields)
+	prefix, err := parseRoutePrefix(fields, destination.Addr().BitLen())
 	if err != nil {
 		return tunnel.Route{}, false, fmt.Errorf("parse route %s: %w", destination, err)
 	}
 	if prefix != destination {
 		return tunnel.Route{}, false, nil
 	}
-	current := tunnel.Route{Destination: prefix, Interface: fields["interface"]}
+	current := tunnel.Route{
+		Destination: prefix, Interface: fields["interface"], Reject: strings.Contains(fields["flags"], "REJECT"),
+	}
 	if gateway, parseErr := netip.ParseAddr(fields["gateway"]); parseErr == nil {
 		current.Gateway = gateway
 	}
@@ -141,13 +154,17 @@ func routeArguments(operation string, route tunnel.Route) ([]string, error) {
 	if operation != "add" && operation != "delete" {
 		return nil, errors.New("unsupported route operation")
 	}
+	family := "-inet"
+	if route.Destination.Addr().Is6() {
+		family = "-inet6"
+	}
 	kind := "-net"
-	if route.Destination.Bits() == 32 {
+	if route.Destination.Bits() == route.Destination.Addr().BitLen() {
 		kind = "-host"
 	}
-	arguments := []string{operation, "-inet", kind}
+	arguments := []string{operation, family, kind}
 	destination := route.Destination.String()
-	if route.Destination.Bits() == 32 {
+	if route.Destination.Bits() == route.Destination.Addr().BitLen() {
 		destination = route.Destination.Addr().String()
 	}
 	if route.Gateway.IsValid() {
@@ -164,6 +181,9 @@ func routeArguments(operation string, route tunnel.Route) ([]string, error) {
 		return nil, errors.New("direct route is missing its interface")
 	}
 	arguments = append(arguments, destination, "-interface", route.Interface)
+	if route.Reject {
+		arguments = append(arguments, "-reject")
+	}
 	return arguments, nil
 }
 
@@ -178,22 +198,31 @@ func parseRouteFields(output []byte) map[string]string {
 	return fields
 }
 
-func parseRoutePrefix(fields map[string]string) (netip.Prefix, error) {
+func parseRoutePrefix(fields map[string]string, bitLength int) (netip.Prefix, error) {
 	destination := fields["destination"]
-	if destination == "default" {
+	if destination == "default" && bitLength == 32 {
 		return netip.MustParsePrefix("0.0.0.0/0"), nil
 	}
-	address, err := parseBSDAddress(destination)
+	var address netip.Addr
+	var err error
+	if bitLength == 128 {
+		address, err = netip.ParseAddr(destination)
+	} else {
+		address, err = parseBSDAddress(destination)
+	}
 	if err != nil {
 		return netip.Prefix{}, err
 	}
 	if strings.Contains(fields["flags"], "HOST") {
-		return netip.PrefixFrom(address, 32), nil
+		return netip.PrefixFrom(address, bitLength), nil
+	}
+	if prefixLength, parseErr := strconv.Atoi(fields["prefixlen"]); parseErr == nil && prefixLength >= 0 && prefixLength <= bitLength {
+		return netip.PrefixFrom(address, prefixLength).Masked(), nil
 	}
 	if fields["mask"] == "" {
 		return netip.Prefix{}, errors.New("non-host route is missing its mask")
 	}
-	bits, err := parseMaskBits(fields["mask"])
+	bits, err := parseMaskBits(fields["mask"], bitLength)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
@@ -211,11 +240,11 @@ func parseBSDAddress(value string) (netip.Addr, error) {
 	return netip.ParseAddr(strings.Join(parts, "."))
 }
 
-func parseMaskBits(value string) (int, error) {
+func parseMaskBits(value string, bitLength int) (int, error) {
 	if value == "default" {
 		return 0, nil
 	}
-	if strings.HasPrefix(value, "0x") {
+	if bitLength == 32 && strings.HasPrefix(value, "0x") {
 		mask, err := strconv.ParseUint(strings.TrimPrefix(value, "0x"), 16, 32)
 		if err != nil {
 			return 0, err
@@ -223,12 +252,31 @@ func parseMaskBits(value string) (int, error) {
 		return maskBits(uint32(mask))
 	}
 	mask, err := netip.ParseAddr(value)
-	if err != nil || !mask.Is4() {
-		return 0, errors.New("invalid IPv4 route mask")
+	if err != nil || mask.BitLen() != bitLength {
+		return 0, errors.New("invalid route mask")
 	}
-	bytes := mask.As4()
-	value32 := uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
-	return maskBits(value32)
+	if bitLength == 32 {
+		bytes := mask.As4()
+		value32 := uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
+		return maskBits(value32)
+	}
+	bytes := mask.As16()
+	ones := 0
+	zeroSeen := false
+	for _, item := range bytes {
+		for bit := 7; bit >= 0; bit-- {
+			set := item&(1<<bit) != 0
+			if zeroSeen && set {
+				return 0, errors.New("non-contiguous route mask")
+			}
+			if set {
+				ones++
+			} else {
+				zeroSeen = true
+			}
+		}
+	}
+	return ones, nil
 }
 
 func maskBits(mask uint32) (int, error) {

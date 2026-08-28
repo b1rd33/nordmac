@@ -1,7 +1,6 @@
-// Package nordauth contains the quarantined candidate client for Nord's
-// undocumented credential-provisioning contract. Nothing in the CLI wires this
-// package to a user command; it exists so the request and validation boundary
-// can be reviewed and tested without using a real credential.
+// Package nordauth contains the bounded client for Nord's undocumented
+// credential-provisioning contract. The packaged CLI invokes it only from an
+// explicit login command; tests use loopback and synthetic credentials.
 package nordauth
 
 import (
@@ -41,15 +40,14 @@ type Provisioning struct {
 	PrivateKey []byte
 }
 
-// Client is intentionally not part of command.Service. BaseURL exists for
-// local httptest servers; production callers should leave it empty.
+// BaseURL exists for local httptest servers; production callers leave it empty.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
 }
 
-// Provision performs the observed read-only credential exchange. Calling this
-// method with a real token is separately approval-gated even though it uses GET.
+// Provision performs the observed credential exchange. It does not mutate the
+// Nord account, but its response contains a private key.
 func (client Client) Provision(ctx context.Context, token []byte) (Provisioning, error) {
 	if err := validateToken(token); err != nil {
 		return Provisioning{}, err

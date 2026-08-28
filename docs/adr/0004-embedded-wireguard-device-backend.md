@@ -1,6 +1,6 @@
-# ADR 0004: embed a pinned WireGuard userspace device behind an unwired adapter
+# ADR 0004: embed a pinned WireGuard userspace device
 
-- Status: validated for the device-only gate
+- Status: wired into the unreleased helper; Nord live validation pending
 - Date: 2026-08-27
 
 ## Decision
@@ -9,7 +9,7 @@ Use the official MIT-licensed `wireguard-go` packages directly for the first mac
 
 Do not shell out to `wg-quick`. Its Darwin implementation owns routes, DNS, and a background route monitor, which would bypass nordmac's transaction journal and compare-before-restore rules. A standalone `wireguard-go` process would also complicate exact process/interface ownership and secret transport without removing the need for a privileged nordmac helper.
 
-The backend is deliberately unwired from the public CLI. The separate `nordmac-wg-harness` executable is also excluded from the release pipeline. Its only permitted live action is creating one userspace `utun`, configuring one literal IPv4 controlled-peer endpoint, waiting at most 60 seconds for a fresh bidirectional handshake, and closing the device. It cannot configure an interface address, route, DNS, PF, Nord credential, persistence, or arbitrary hook.
+The backend is wired into the unreleased CLI through the privileged daemon and journaled controller. The separate `nordmac-wg-harness` remains excluded from release packaging as regression evidence for the device-only gate. The production path is not considered validated until the separately approved full Nord test succeeds and rolls back cleanly.
 
 ## Secret and ownership boundary
 
@@ -21,6 +21,6 @@ The manager records the exact session, actual `utun` name, process ID, and live 
 
 ## Consequences
 
-This validates only WireGuard device creation and handshake mechanics. It is not a VPN, offers no leak protection, and must not be exposed as `nordmac connect`. Gate 3 remains responsible for interface addressing and one scoped synthetic route. Full IPv4 routes, DNS, IPv6 policy, sleep/wake, roaming, and stale-journal recovery remain later gates.
+The backend supplies device creation and handshake mechanics; the tunnel controller now supplies interface addressing, endpoint pinning, IPv4 split defaults, IPv6 rejection, DNS ownership, status, and stale-journal recovery. Sleep/wake, roaming, full DNS/default-route behavior, and real Nord interoperability remain live validation gates.
 
 The first live device-only validation passed on 2026-08-27. The evidence and cleanup record are in `docs/validation/device-only-2026-08-27.md`.

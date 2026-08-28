@@ -47,7 +47,13 @@ The official Linux client was reviewed read-only at commit `d49b7d14715a80e320ba
 
 ## Native Keychain boundary
 
-The Swift helper under `native/keychain-helper` was independently written from Apple Security framework documentation for generic-password items, `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete`, `kSecUseKeychain`, and `kSecMatchSearchList`. It contains no Nord or third-party implementation. It is absent from v0.1.0; the release pipeline can package it under `libexec` with its digest embedded in the matching CLI. The helper has separate compile-time services for isolated validation, synthetic login-Keychain validation, and production credentials. The production service and its two account names are fixed, cannot be supplied by a caller, remain disconnected from the public CLI, and have not been invoked in validation.
+The Swift helper under `native/keychain-helper` was independently written from Apple Security framework documentation for generic-password items, `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete`, `kSecUseKeychain`, and `kSecMatchSearchList`. It contains no Nord or third-party implementation. It is absent from v0.1.0; the release pipeline packages it under `libexec` with its digest embedded in the matching CLI. The helper has separate compile-time services for isolated validation, synthetic login-Keychain validation, and production credentials. The production service and its two account names are fixed and cannot be supplied by a caller. It is composed by the unreleased CLI but has not been invoked with production credentials.
+
+## Full-tunnel implementation
+
+The macOS route, DNS, privileged-helper, connection-state, and command orchestration added on 2026-08-28 were independently designed around documented Darwin command interfaces and the pre-existing nordmac transaction model. The implementation links upstream MIT-licensed `wireguard-go`; its license and the linked Go module notices ship in `THIRD_PARTY_NOTICES.md`. It does not compile, copy, translate, or link Nord's GPL Linux client. Factual values such as the tunnel address, UDP port, DNS addresses, endpoint path, and WireGuard public keys are interoperability data. Full default-route/DNS behavior and live Nord authentication remain pending explicit validation.
+
+The new implementation files under `internal/connection`, `internal/helperclient`, `internal/helperdaemon`, and the Darwin DNS/service adapters were compared against all Go files in the two retained read-only Nord Linux checkouts at commits `01a73607bd831541175a636e9c20ccbb944acc85` and `b20a74cd61f030dc160a251755bdfe30a2a2f2c4`. Among 241 unique non-comment nordmac lines of at least 60 characters, the exact-line comparison found zero matches in either checkout.
 
 ## Names and affiliation
 

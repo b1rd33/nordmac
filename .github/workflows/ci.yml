@@ -63,6 +63,7 @@ jobs:
             test "$helper_sha256" = "$manifest_sha256"
             codesign --verify --strict --verbose=2 "$verify_directory/nordmac"
             codesign --verify --strict --verbose=2 "$verify_directory/libexec/nordmac-keychain-helper"
+            test -f "$verify_directory/THIRD_PARTY_NOTICES.md"
             find "$verify_directory" -depth -delete
           done
           (cd "$RUNNER_TEMP/nordmac-dist" && shasum -a 256 -c checksums.txt)

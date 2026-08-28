@@ -1,6 +1,6 @@
-# ADR 0003: journaled IPv4 transaction core before any `utun` test
+# ADR 0003: journaled macOS tunnel transaction
 
-- Status: accepted for the Phase 2 offline core
+- Status: implemented; full-tunnel live validation pending
 - Date: 2026-08-27
 
 ## Context
@@ -13,20 +13,20 @@ The official [`wireguard-go` documentation](https://github.com/WireGuard/wiregua
 
 Build and validate the transaction core before selecting or activating a concrete tunnel backend.
 
-The offline core now has:
+The transaction now has:
 
-- a non-secret, IPv4-only plan that validates session identity, owner UID, endpoint, captured physical gateway/interface, tunnel address, MTU, DNS servers, and peer-key fingerprint;
+- a non-secret plan that validates session identity, owner UID, endpoint, captured physical gateway/interface, fixed DNS service, tunnel address, MTU, DNS servers, and peer-key fingerprint;
 - a versioned lifecycle journal with `planned`, `applied`, and `rolled_back` entries;
 - intent persistence before every device, endpoint-route, split-default-route, and DNS mutation;
-- endpoint `/32` pinning through the captured physical gateway/interface before `0.0.0.0/1` and `128.0.0.0/1` routes;
-- DNS applied last and restored only through an adapter contract that compares current state with what nordmac applied;
+- endpoint `/32` pinning through the captured physical gateway/interface before IPv4 split defaults and two IPv6 reject routes;
+- DNS applied only to the captured network service and restored component-by-component only when current state still equals either the applied value or pre-image;
 - reverse, idempotent rollback that continues after individual cleanup failures and retains `rollback_required` evidence;
 - an exclusive fail-closed file lock and a strict journal store using private modes, bounded JSON, atomic replacement, file and directory syncing, no path-derived input, and no secret fields;
-- a versioned helper request with only `connect`, `disconnect`, and `recover`, plus a separate fixed-size binary frame for ephemeral WireGuard keys.
+- a versioned helper protocol with `connect`, `disconnect`, `recover`, and `status`, plus a bounded request frame and fixed-size ephemeral WireGuard key frame.
 
-The code contains no Darwin route, DNS, process, `utun`, or WireGuard implementation and is not wired to the CLI. Its tests use fake adapters and temporary directories only.
+Darwin route, DNS, network-service resolution, userspace `utun`, privileged daemon, local metadata, and CLI orchestration are implemented. Unit tests use fake adapters and temporary directories; the earlier controlled-peer gates are the only live tunnel evidence so far.
 
-IPv6 is intentionally rejected in this slice. This is not leak protection and must never be presented as a complete VPN. A future live plan must either prove IPv6 tunneling or separately approve an explicit block policy.
+While full IPv4 tunneling is active, `::/1` and `8000::/1` are installed as owned reject routes through `lo0`. This prevents native IPv6 escape by policy, but the exact Darwin behavior and rollback still require a live full-transaction gate.
 
 ## Local-peer harness plan
 
@@ -45,7 +45,7 @@ Before running gate 2, require a new approval naming the controlled peer endpoin
 
 The unprivileged process selects and validates the plan, reads Keychain, and sends an authenticated request to a root-owned helper. The helper must independently verify the caller UID, current physical route, request schema, fixed operation, endpoint, prefixes, interface names, and journal ownership. It accepts no executable path, shell text, hook, environment override, PF rule, or arbitrary file path.
 
-For the transitional PoC, ephemeral raw WireGuard keys use a dedicated inherited pipe with a fixed 68-byte frame and must be wiped after configuration. The request and persistent journal contain only the public-key fingerprint. The sender closes the secret pipe after one frame; trailing or short data fails closed.
+Ephemeral raw WireGuard keys use a length-prefixed request followed by a fixed 68-byte frame on a pipe or protected Unix socket and are wiped after configuration. The request and persistent journal contain only the public-key fingerprint. The sender half-closes after one frame; trailing or short data fails closed.
 
 ## Consequences and next decision
 

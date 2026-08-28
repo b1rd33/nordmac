@@ -85,7 +85,7 @@ for architecture in arm64 amd64; do
   fi
   /usr/bin/codesign --verify --strict --verbose=2 "$stage/nordmac"
 
-  /bin/cp LICENSE README.md "$stage/"
+  /bin/cp LICENSE README.md THIRD_PARTY_NOTICES.md "$stage/"
   /usr/bin/printf '{"schema_version":1,"architecture":"%s","helper_sha256":"%s","signing":"%s"}\n' \
     "$architecture" "$helper_sha256" "$signing_mode" > "$stage/nordmac-helper-manifest.json"
   archive_architecture=$architecture

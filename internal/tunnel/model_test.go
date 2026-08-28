@@ -16,7 +16,8 @@ func TestPlanValidationAndDerivedOrder(t *testing.T) {
 		t.Fatalf("endpoint route = %#v", route)
 	}
 	routes := plan.TunnelRoutes()
-	if len(routes) != 2 || routes[0].Destination.String() != "0.0.0.0/1" || routes[1].Destination.String() != "128.0.0.0/1" {
+	if len(routes) != 4 || routes[0].Destination.String() != "0.0.0.0/1" || routes[1].Destination.String() != "128.0.0.0/1" ||
+		routes[2].Destination.String() != "::/1" || !routes[2].Reject || routes[3].Destination.String() != "8000::/1" || !routes[3].Reject {
 		t.Fatalf("tunnel routes = %#v", routes)
 	}
 }
@@ -59,8 +60,9 @@ func TestPlanRejectsUnsafeValues(t *testing.T) {
 		"address prefix": func(plan *Plan) {
 			plan.TunnelAddress = netip.MustParsePrefix("10.5.0.0/24")
 		},
-		"MTU":        func(plan *Plan) { plan.TunnelMTU = 1000 },
-		"DNS family": func(plan *Plan) { plan.TunnelDNS = []netip.Addr{netip.MustParseAddr("2001:db8::53")} },
+		"MTU":         func(plan *Plan) { plan.TunnelMTU = 1000 },
+		"DNS family":  func(plan *Plan) { plan.TunnelDNS = []netip.Addr{netip.MustParseAddr("2001:db8::53")} },
+		"DNS service": func(plan *Plan) { plan.DNSService = "" },
 		"DNS duplicate": func(plan *Plan) {
 			plan.TunnelDNS = []netip.Addr{netip.MustParseAddr("10.5.0.1"), netip.MustParseAddr("10.5.0.1")}
 		},

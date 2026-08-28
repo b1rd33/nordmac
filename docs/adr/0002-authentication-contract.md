@@ -1,6 +1,6 @@
-# ADR 0002: keep Nord authentication disabled pending contract validation
+# ADR 0002: bounded Nord authentication behind explicit login
 
-- Status: accepted for the Phase 2 foundation
+- Status: implemented in unreleased builds; production validation pending
 - Date: 2026-08-27
 
 ## Context
@@ -54,3 +54,5 @@ Read-only review on 2026-08-28 pinned the current official Linux client at `d49b
 The composed login path passed a synthetic end-to-end gate on 2026-08-28. An unreleased harness made exactly one request to a loopback server, decoded a bounded synthetic response, transactionally stored the synthetic access token and NordLynx private key in an explicit temporary Keychain, verified both, deleted both, and removed the Keychain. Unit tests cover partial-write rollback and replacement restoration. The public command remains disconnected; see [the synthetic login validation record](../validation/synthetic-login-2026-08-28.md).
 
 The command layer was subsequently wired behind authenticated packaged-helper discovery. Helper-less builds reject authentication commands before reading stdin or prompting. Packaged builds accept hidden input or explicit `--token-stdin`, serialize the complete transaction, report complete/absent/inconsistent local credential state, and require `logout --local-only` before deleting the local pair. Local logout does not claim to revoke a Nord token. A crash between Keychain mutations can leave an inconsistent pair; `status` detects it, and either a successful replacement login or transactional local logout repairs it. No production command was invoked during this implementation; see [the authentication-command validation record](../validation/auth-commands-2026-08-28.md).
+
+The current unreleased packaged CLI now exposes that guarded login composition and uses the stored private key only in memory when building a connect request. This changes code reachability, not validation evidence: no real token has been submitted, no production Keychain item has been created, and the authenticated endpoint remains undocumented. Invoking `login` is therefore an explicit user-authorized production action, not an automatic setup step or release test.

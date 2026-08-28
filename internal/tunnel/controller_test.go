@@ -64,6 +64,7 @@ func testPlan() Plan {
 		TunnelAddress:     netip.MustParsePrefix("10.5.0.2/32"),
 		TunnelMTU:         1420,
 		TunnelDNS:         []netip.Addr{netip.MustParseAddr("10.5.0.1")},
+		DNSService:        "synthetic-wifi",
 		RoutePolicy:       RoutePolicyFullIPv4,
 		PeerFingerprint:   strings.Repeat("b", 64),
 	}
@@ -73,6 +74,7 @@ func scopedTestPlan() Plan {
 	plan := testPlan()
 	plan.RoutePolicy = RoutePolicyScopedIPv4
 	plan.TunnelDNS = nil
+	plan.DNSService = ""
 	plan.ScopedRoutes = []netip.Prefix{netip.MustParsePrefix("10.250.0.0/24")}
 	return plan
 }
@@ -221,9 +223,12 @@ func (manager fakeRouteManager) Add(ctx context.Context, route Route) error {
 func (manager fakeRouteManager) Remove(ctx context.Context, route Route) error {
 	return manager.environment.Remove(ctx, route)
 }
-func (manager fakeDNSManager) Snapshot(_ context.Context) (DNSSnapshot, error) {
+func (manager fakeDNSManager) Snapshot(_ context.Context, config DNSConfig) (DNSSnapshot, error) {
 	if err := manager.environment.action("dns.snapshot", nil); err != nil {
 		return DNSSnapshot{}, err
+	}
+	if config.ServiceID != "synthetic-wifi" {
+		return DNSSnapshot{}, errors.New("unexpected DNS service")
 	}
 	return DNSSnapshot{
 		Revision: "synthetic-before",
@@ -257,7 +262,7 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	if journal.Phase != PhaseConnected || environment.journal == nil || len(environment.routes) != 3 || !environment.dnsApplied || len(environment.deviceBySession) != 1 {
+	if journal.Phase != PhaseConnected || environment.journal == nil || len(environment.routes) != 5 || !environment.dnsApplied || len(environment.deviceBySession) != 1 {
 		t.Fatalf("unexpected connected state: phase=%s journal=%v routes=%d dns=%v devices=%d", journal.Phase, environment.journal != nil, len(environment.routes), environment.dnsApplied, len(environment.deviceBySession))
 	}
 
@@ -266,6 +271,8 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 		"device.create",
 		"route.add:0.0.0.0/1",
 		"route.add:128.0.0.0/1",
+		"route.add:::/1",
+		"route.add:8000::/1",
 		"dns.apply",
 		"verify",
 	}
@@ -279,6 +286,8 @@ func TestConnectAndDisconnectTransactionOrder(t *testing.T) {
 	}
 	wantRollbackOrder := []string{
 		"dns.restore",
+		"route.remove:8000::/1",
+		"route.remove:::/1",
 		"route.remove:128.0.0.0/1",
 		"route.remove:0.0.0.0/1",
 		"device.delete",
@@ -388,6 +397,8 @@ func TestConnectRollsBackAfterEveryMutationFailure(t *testing.T) {
 		"route.add:203.0.113.10/32",
 		"route.add:0.0.0.0/1",
 		"route.add:128.0.0.0/1",
+		"route.add:::/1",
+		"route.add:8000::/1",
 		"dns.apply",
 		"verify",
 	}
@@ -405,7 +416,7 @@ func TestConnectRollsBackAfterEveryMutationFailure(t *testing.T) {
 }
 
 func TestConnectRollsBackAfterEveryJournalBoundaryFailure(t *testing.T) {
-	for failure := 1; failure <= 11; failure++ {
+	for failure := 1; failure <= 15; failure++ {
 		t.Run(fmt.Sprintf("update_%02d", failure), func(t *testing.T) {
 			environment := newFakeEnvironment()
 			environment.failUpdateNumber = failure
@@ -470,6 +481,8 @@ func TestIncompleteRollbackIsRetainedAndRecoverable(t *testing.T) {
 func TestEveryRollbackOperationCanBeRetried(t *testing.T) {
 	actions := []string{
 		"dns.restore",
+		"route.remove:8000::/1",
+		"route.remove:::/1",
 		"route.remove:128.0.0.0/1",
 		"route.remove:0.0.0.0/1",
 		"route.remove:203.0.113.10/32",
@@ -528,7 +541,7 @@ func TestDisconnectRefusesWrongOwner(t *testing.T) {
 	if err := controller.Disconnect(context.Background(), testPlan().SessionID, 502); err == nil {
 		t.Fatal("Disconnect unexpectedly accepted the wrong owner")
 	}
-	if environment.journal == nil || len(environment.routes) != 3 {
+	if environment.journal == nil || len(environment.routes) != 5 {
 		t.Fatal("wrong-owner request changed tunnel state")
 	}
 }

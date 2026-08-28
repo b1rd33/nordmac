@@ -1,6 +1,6 @@
 # Releasing nordmac
 
-The current signed-release design is macOS-native because every artifact contains both a Go CLI and a Swift Security-framework helper. A tagged release must build, Developer ID-sign, notarize, and verify separate Apple Silicon and Intel ZIP archives. Publication fails closed when any signing or notarization input is missing.
+The zero-fee release design builds ad-hoc-signed Apple Silicon and Intel ZIP archives containing the Go CLI and Swift Security-framework helper. It does not require Apple Developer Program membership. These artifacts are not notarized, so macOS may require the user to approve or remove quarantine for the downloaded binary.
 
 The public v0.1.0 release predates this pipeline: it contains unsigned CLI-only `tar.gz` archives. Do not describe v0.1.0 as signed or notarized.
 
@@ -11,26 +11,15 @@ Each future `nordmac_<version>_darwin_<architecture>.zip` contains:
 - `nordmac`;
 - `libexec/nordmac-keychain-helper` for the same architecture;
 - `nordmac-helper-manifest.json`;
-- `LICENSE` and `README.md`.
+- `LICENSE`, `README.md`, and `THIRD_PARTY_NOTICES.md`.
 
 The packaging script hashes the already-signed helper and embeds that SHA-256 into the matching CLI at link time. `nordmac version --json` exposes the non-secret digest for installation verification. The caller resolves the installed CLI symlink and accepts only the exact `libexec` sibling when its SHA-256 matches, it and its parent have safe type/mode/ownership, neither is group- or world-writable, and the helper is executable. Development builds have no accepted helper digest.
 
 The packaged helper exposes isolated validation, fixed-service login-Keychain validation, and a distinct fixed production service. The production target accepts only the two compiled credential account names and cannot accept an arbitrary service, account, or Keychain path. A correctly packaged CLI can reach the authentication command code, but packaging alone does not invoke it, authenticate with Nord, access Keychain, or change a tunnel.
 
-## Apple prerequisites
+## Optional future notarization
 
-Apple requires directly distributed software to use a Developer ID Application certificate, hardened runtime, and secure timestamp before notarization. The repository currently finds no local valid signing identity, so only ad-hoc local snapshots can be produced until the maintainer joins/configures the Apple Developer Program and creates the required credentials.
-
-Configure these GitHub Actions secrets:
-
-- `APPLE_DEVELOPER_ID_P12_BASE64`: base64-encoded Developer ID Application certificate and private key exported as PKCS#12;
-- `APPLE_DEVELOPER_ID_P12_PASSWORD`: export password for that PKCS#12 file;
-- `APPLE_SIGNING_IDENTITY`: full identity beginning with `Developer ID Application:`;
-- `APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API private key;
-- `APPLE_API_KEY_ID`: API key identifier;
-- `APPLE_API_ISSUER_ID`: App Store Connect issuer identifier.
-
-The release job imports the certificate into an ephemeral runner Keychain, signs both code objects with hardened runtime and timestamping, submits each ZIP using `notarytool --wait`, verifies both extracted signatures with `codesign` and Gatekeeper with `spctl`, publishes only after success, and deletes ephemeral key material in an `always()` step. ZIP files cannot carry stapled tickets; Apple publishes tickets online for the signed binaries contained in the accepted archive.
+Developer ID signing and Apple notarization can be added later to eliminate Gatekeeper friction. They are not required by the current GitHub/Homebrew release workflow and no paid Apple membership is assumed.
 
 ## Local verification
 
@@ -46,13 +35,13 @@ make release-check
 make snapshot
 ```
 
-An ad-hoc snapshot tests build shape, architecture, signatures, embedded helper digest, archive contents, and checksums. It is not distributable and must never be published as signed or notarized.
+An ad-hoc snapshot tests build shape, architecture, signatures, embedded helper digest, archive contents, notices, and checksums. It may be distributed, but must never be described as Developer ID-signed or notarized.
 
 ## Publishing
 
-After all six GitHub secrets are configured and the main-branch CI run passes, create a new immutable semantic-version tag. Never reuse or move a published tag. The tag triggers `.github/workflows/release.yml`; the workflow creates the GitHub release only after both archives are accepted by Apple and verified locally on the runner.
+After the main-branch CI run passes and the separately approved live validation is complete, create a new immutable semantic-version tag. Never reuse or move a published tag. The tag triggers `.github/workflows/release.yml`, verifies both ad-hoc archives, and creates the GitHub release.
 
-Update `Casks/nordmac.rb` in `b1rd33/homebrew-tap` only after checking the published checksums. The new cask URLs must use `.zip`, retain `binary "nordmac"`, and leave `libexec/nordmac-keychain-helper` in the staged archive beside the resolved CLI target. Remove the v0.1.0 quarantine-removal `postflight`; signed and notarized artifacts must not depend on clearing quarantine manually.
+Update `Casks/nordmac.rb` in `b1rd33/homebrew-tap` only after checking the published checksums. The new cask URLs must use `.zip`, retain `binary "nordmac"`, leave `libexec/nordmac-keychain-helper` beside the resolved CLI target, and clearly retain the existing quarantine workaround because the artifacts are not notarized.
 
 Final verification on a clean Mac:
 

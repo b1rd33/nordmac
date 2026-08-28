@@ -63,6 +63,7 @@ func TestRouteAddUsesExactArgumentsAfterNoExactConflict(t *testing.T) {
 	runner := &fakeRunner{results: []runnerResult{
 		{output: "destination: default\nmask: default\ninterface: en0\nflags: <UP,GATEWAY>\n"},
 		{},
+		{output: "destination: 10.250.0\nmask: 255.255.255.0\ninterface: utun11\nflags: <UP,DONE,STATIC>\n"},
 	}}
 	route := tunnel.Route{Destination: netip.MustParsePrefix("10.250.0.0/24"), Interface: "utun11"}
 	if err := (RouteManager{Runner: runner}).Add(context.Background(), route); err != nil {
@@ -71,6 +72,7 @@ func TestRouteAddUsesExactArgumentsAfterNoExactConflict(t *testing.T) {
 	want := []invocation{
 		{name: "/sbin/route", args: []string{"-n", "get", "-inet", "-net", "10.250.0.0/24"}},
 		{name: "/sbin/route", args: []string{"-n", "add", "-inet", "-net", "10.250.0.0/24", "-interface", "utun11"}},
+		{name: "/sbin/route", args: []string{"-n", "get", "-inet", "-net", "10.250.0.0/24"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
@@ -144,8 +146,27 @@ func TestEndpointRoutePinsGatewayAndScope(t *testing.T) {
 }
 
 func TestParseRoutePrefixRejectsNonContiguousMask(t *testing.T) {
-	_, err := parseRoutePrefix(map[string]string{"destination": "10.250", "mask": "255.0.255.0"})
+	_, err := parseRoutePrefix(map[string]string{"destination": "10.250", "mask": "255.0.255.0"}, 32)
 	if err == nil {
 		t.Fatal("non-contiguous mask accepted")
+	}
+}
+
+func TestIPv6RejectRouteUsesExactArgumentsAndOwnership(t *testing.T) {
+	route := tunnel.Route{Destination: netip.MustParsePrefix("::/1"), Interface: "lo0", Reject: true}
+	arguments, err := routeArguments("add", route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"add", "-inet6", "-net", "::/1", "-interface", "lo0", "-reject"}
+	if !reflect.DeepEqual(arguments, want) {
+		t.Fatalf("arguments=%#v want=%#v", arguments, want)
+	}
+	runner := &fakeRunner{results: []runnerResult{{output: "destination: ::\nmask: 8000::\ninterface: lo0\nflags: <UP,DONE,STATIC,REJECT>\n"}, {}}}
+	if err := (RouteManager{Runner: runner}).Remove(context.Background(), route); err != nil {
+		t.Fatal(err)
+	}
+	if got := runner.calls[1].args; !reflect.DeepEqual(got, []string{"-n", "delete", "-inet6", "-net", "::/1", "-interface", "lo0", "-reject"}) {
+		t.Fatalf("delete args = %#v", got)
 	}
 }

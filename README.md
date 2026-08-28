@@ -12,12 +12,12 @@ See [docs/implementation-plan.md](docs/implementation-plan.md) for the architect
 nordmac login
 nordmac countries --json
 nordmac recommend de --json
-sudo nordmac connect de --json
-sudo nordmac connect de --city berlin
-sudo nordmac connect de --server de1234
+nordmac connect de --json
+nordmac connect de --city berlin
+nordmac connect de --server de1234
 nordmac status --json
-sudo nordmac disconnect
-sudo nordmac reconnect --fresh
+nordmac disconnect
+nordmac reconnect --fresh
 ```
 
 These commands are a target interface, not a statement that Nord's undocumented authentication and NordLynx provisioning APIs are stable or supported.
@@ -40,15 +40,15 @@ bin/nordmac plan de --city berlin --json
 
 `plan` freezes a candidate server IPv4, peer-key fingerprint, WireGuard parameters, split-route mutations, DNS resolvers, current upstream reference commit, and remaining safety blockers. It always reports `ready_for_live_test: false`; it does not read credentials or change the network.
 
-`connect`, `disconnect`, and `reconnect` still return an `unavailable` error and perform no system changes. The source tree now wires `login`, credential-aware `status`, and explicit `logout --local-only` only when the running CLI authenticates its packaged native helper by resolved location, SHA-256, type, mode, and ownership. Development builds without an embedded helper digest and the published v0.1.0 release remain unavailable before reading token input or accessing Keychain.
+The unreleased source tree implements `connect`, `disconnect`, and `reconnect --fresh`. Run the CLI as the ordinary logged-in user: it reads the fixed Keychain items before asking `sudo` to launch a narrow internal helper. That root helper never reads the login Keychain or calls Nord APIs; it owns the userspace `utun`, exact route/DNS transaction, private journal, and per-user status socket. The published v0.1.0 release remains read-only, and the new full-tunnel path remains unvalidated against Nord until a separately approved live test.
 
 The credential foundation uses fixed Keychain account names and keeps secrets out of process arguments. Its automated tests use synthetic values, a fake runner, and local HTTP servers; they do not touch the user's Keychain or Nord's authenticated API. Live synthetic validation found that Apple's `security(1)` stdin write can return success while storing an empty value, so `Store.Put` now fails closed until it is replaced by a native or signed boundary. See [ADR 0002](docs/adr/0002-authentication-contract.md) and the [Keychain validation record](docs/validation/keychain-2026-08-28.md).
 
-An unreleased native Security framework helper has passed create/read/replace/read/delete validation against both an explicit temporary Keychain and one approved synthetic item in the user's login Keychain. The login test used a fixed validation-only service and left no item behind. The helper now also contains a separate fixed production service, but the public CLI does not invoke it and it has never been used with a production item. Real Nord credentials and authenticated requests remain disabled. The release pipeline can package the helper beside the CLI with its SHA-256 embedded in that architecture's CLI; the existing v0.1.0 release does not contain it. See the [isolated](docs/validation/native-keychain-2026-08-28.md), [login Keychain](docs/validation/native-login-keychain-2026-08-28.md), and [login-boundary](docs/validation/login-boundary-2026-08-28.md) validation records.
+An unreleased native Security framework helper has passed create/read/replace/read/delete validation against both an explicit temporary Keychain and one approved synthetic item in the user's login Keychain. The login test used a fixed validation-only service and left no item behind. The source CLI now composes its separate fixed production service, but no production item or real Nord credential has been used. The release pipeline packages the helper beside the CLI with its SHA-256 embedded in that architecture's CLI; the existing v0.1.0 release does not contain it. See the [isolated](docs/validation/native-keychain-2026-08-28.md), [login Keychain](docs/validation/native-login-keychain-2026-08-28.md), and [login-boundary](docs/validation/login-boundary-2026-08-28.md) validation records.
 
 The candidate login transaction has also passed end-to-end simulation against one loopback request and an isolated temporary Keychain. It provisioned a synthetic response, stored and verified the token/key pair, deleted both, and removed the Keychain. Bounded hidden/stdin token parsing, a private single-writer credential lock, status consistency detection, and transactional local removal are implemented and tested. `logout` requires `--local-only` because it does not revoke the token remotely. This does not validate Nord's live undocumented endpoint or authorize a production login test. See the [synthetic login](docs/validation/synthetic-login-2026-08-28.md) and [authentication-command](docs/validation/auth-commands-2026-08-28.md) records.
 
-The tunnel core records intent before each planned mutation, pins the endpoint before tunnel routes, restores in reverse order, and retains incomplete rollback evidence. Unreleased approval-gated harnesses validated userspace WireGuard and one scoped route against controlled peers; the adapters remain disconnected from shipped commands. See [ADR 0003](docs/adr/0003-tunnel-transaction-core.md), [ADR 0005](docs/adr/0005-scoped-route-gate.md), and the [Gate 3 evidence](docs/validation/scoped-route-2026-08-27.md).
+The tunnel core records intent before every mutation, pins the endpoint before tunnel routes, rejects IPv6 with two owned routes, applies DNS only to the captured physical network service, restores in reverse order, and refuses to overwrite route or DNS state that changed after application. Unreleased controlled harnesses validated userspace WireGuard and one scoped route; full default routing and DNS still require the separately approved Nord live gate. See [ADR 0003](docs/adr/0003-tunnel-transaction-core.md), [ADR 0005](docs/adr/0005-scoped-route-gate.md), the [Gate 3 evidence](docs/validation/scoped-route-2026-08-27.md), and the [offline full-tunnel checkpoint](docs/validation/full-tunnel-implementation-2026-08-28.md).
 
 The current `/v1/servers` endpoints are the replacement family Nord pointed users to after deprecating older endpoints; nevertheless, they remain undocumented and are treated as unstable. See [ADR 0001](docs/adr/0001-public-api.md).
 
@@ -60,10 +60,10 @@ Install the latest release from the public tap:
 brew install --cask b1rd33/tap/nordmac
 ```
 
-The existing v0.1.0 release contains unsigned Apple Silicon and Intel binaries. The repository can build ad-hoc local snapshots without an Apple Developer membership. Public releases from the current pipeline are gated on Developer ID signing and Apple notarization and use architecture-specific ZIP archives containing the CLI and its fixed-target Keychain helper. See the [v0.1.0 release](https://github.com/b1rd33/nordmac/releases/tag/v0.1.0) or [docs/releasing.md](docs/releasing.md) for the release pipeline.
+The existing v0.1.0 release contains unsigned Apple Silicon and Intel binaries. Future releases use architecture-specific ZIP archives with ad-hoc signatures, the fixed-target Keychain helper, and third-party notices. This costs nothing but is not Apple-notarized, so Gatekeeper may require explicit user approval. See the [v0.1.0 release](https://github.com/b1rd33/nordmac/releases/tag/v0.1.0) or [docs/releasing.md](docs/releasing.md).
 
 ## License and affiliation
 
-`nordmac` is independently authored and released under the [MIT License](LICENSE). See [source provenance](docs/source-provenance.md) for the pre-publication comparison with Nord's GPL Linux client.
+`nordmac` is independently authored and released under the [MIT License](LICENSE). See [source provenance](docs/source-provenance.md) for the comparison with Nord's GPL Linux client and [third-party notices](THIRD_PARTY_NOTICES.md) for linked WireGuard/Go modules.
 
 This is an unofficial project and is not affiliated with or endorsed by Nord Security. NordVPN and NordLynx are referenced only to describe interoperability targets.

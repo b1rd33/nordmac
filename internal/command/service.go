@@ -103,6 +103,11 @@ func (s Service) Recommend(ctx context.Context, query recommend.Query) (Recommen
 	}, nil
 }
 
+func (s Service) RecommendConnection(ctx context.Context, query recommend.Query) (catalog.Server, error) {
+	result, err := s.Recommend(ctx, query)
+	return result.Server, err
+}
+
 func (s Service) now() time.Time {
 	if s.Now != nil {
 		return s.Now()

@@ -14,6 +14,7 @@ import (
 	"github.com/b1rd33/nordmac/internal/authstate"
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/connection"
 	"github.com/b1rd33/nordmac/internal/loginflow"
 	"github.com/b1rd33/nordmac/internal/recommend"
 	"github.com/b1rd33/nordmac/internal/tokeninput"
@@ -34,6 +35,26 @@ type fakeAuthenticationBackend struct {
 	err          error
 	seenToken    []byte
 	seenRaw      []byte
+}
+
+type fakeConnectionBackend struct {
+	*fakeAuthenticationBackend
+	connectionResult connection.Result
+	connectionQuery  recommend.Query
+}
+
+func (backend *fakeConnectionBackend) Connect(_ context.Context, query recommend.Query) (connection.Result, error) {
+	backend.connectionQuery = query
+	return backend.connectionResult, backend.err
+}
+func (backend *fakeConnectionBackend) Disconnect(context.Context) (connection.Result, error) {
+	return connection.Result{State: "disconnected"}, backend.err
+}
+func (backend *fakeConnectionBackend) Reconnect(context.Context, bool) (connection.Result, error) {
+	return backend.connectionResult, backend.err
+}
+func (backend *fakeConnectionBackend) Status(context.Context) (connection.Result, error) {
+	return backend.connectionResult, backend.err
 }
 
 func (backend *fakeAuthenticationBackend) Login(_ context.Context, token []byte) (loginflow.Result, error) {
@@ -167,6 +188,29 @@ func TestRunUnavailableNeverCallsBackend(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := Run(context.Background(), []string{"connect", "de", "--json"}, &stdout, &stderr, backend)
 	if exit != ExitUsage || !strings.Contains(stdout.String(), "no system changes were made") {
+		t.Fatalf("exit=%d stdout=%q", exit, stdout.String())
+	}
+}
+
+func TestRunConnectAndDisconnectUseConnectionBoundary(t *testing.T) {
+	backend := &fakeConnectionBackend{fakeAuthenticationBackend: &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}}, connectionResult: connection.Result{
+		State: "connected", Server: "de1234.nordvpn.com", Country: "Germany", City: "Berlin",
+	}}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"connect", "de", "--city", "berlin", "--json"}, &stdout, &stderr, backend)
+	if exit != ExitOK || backend.connectionQuery.Country != "de" || backend.connectionQuery.City != "berlin" || !strings.Contains(stdout.String(), `"state":"connected"`) {
+		t.Fatalf("exit=%d query=%#v stdout=%q stderr=%q", exit, backend.connectionQuery, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	if exit := Run(context.Background(), []string{"disconnect", "--json"}, &stdout, &stderr, backend); exit != ExitOK || !strings.Contains(stdout.String(), `"state":"disconnected"`) {
+		t.Fatalf("disconnect exit=%d stdout=%q", exit, stdout.String())
+	}
+}
+
+func TestRunReconnectRequiresFresh(t *testing.T) {
+	backend := &fakeConnectionBackend{fakeAuthenticationBackend: &fakeAuthenticationBackend{fakeBackend: &fakeBackend{}}, connectionResult: connection.Result{State: "connected"}}
+	var stdout, stderr bytes.Buffer
+	if exit := Run(context.Background(), []string{"reconnect", "--json"}, &stdout, &stderr, backend); exit != ExitUsage || !strings.Contains(stdout.String(), `"code":"fresh_required"`) {
 		t.Fatalf("exit=%d stdout=%q", exit, stdout.String())
 	}
 }

@@ -307,6 +307,12 @@ Decision gate F: permit unattended connection only if an explicit user policy de
 7. Document that `login`, `connect`, `disconnect`, and `reconnect` are unavailable and perform no mutation.
 8. Review Phase 1 evidence and make decision gate A.
 
+## 2026-08-28 implementation checkpoint
+
+The unreleased tree now contains all target command paths, a native fixed-target Keychain boundary, a long-lived sudo-launched helper that owns the userspace `utun`, root-private journals, a protected per-user status socket, immediate route ownership verification, active-service DNS snapshot/apply/compare-before-restore, IPv6 reject routes, local connection metadata, crash recovery through `disconnect`, and ad-hoc zero-fee release packaging with third-party notices. Unit, race, vet, and both-architecture packaging checks pass. No real Nord credential, authenticated request, default route, DNS setting, IPv6 route, production tunnel, tag, GitHub release, or Homebrew update was performed by this checkpoint.
+
+The remaining product gate is empirical rather than missing code: one separately approved production login, then one bounded server-specific tunnel test proving handshake, traffic, DNS, IPv4 egress, IPv6 rejection, graceful disconnect, forced helper crash, and exact recovery. A public release must not claim working Nord connectivity before that evidence exists.
+
 ## Exact approval required before any live tunnel test
 
 Require a new, explicit instruction naming all of the following: permission to use a specified disposable/short-lived Nord token or test account; permission to access/store the resulting credential and private key in the macOS Keychain; permission to download/build the specifically pinned WireGuard dependency if it is not already vendored; permission to run the reviewed privileged helper with `sudo`; permission to create a `utun`, add/remove the enumerated IPv4/IPv6 routes, change/restore the enumerated DNS settings, and send test traffic to one named Nord endpoint; acknowledgement that the existing NordVPN/Tailscale tunnel must first be disconnected or an approved coexistence procedure must be followed; and acceptance of the prewritten rollback/recovery procedure and test window.

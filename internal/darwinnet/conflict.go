@@ -25,10 +25,14 @@ func (checker ConflictChecker) Check(ctx context.Context, plan tunnel.Plan) erro
 	if snapshot.Default.Gateway != plan.PhysicalGateway || snapshot.Default.Interface != plan.PhysicalInterface {
 		return errors.New("physical default route changed before conflict check")
 	}
-	for _, prefix := range []netip.Prefix{
+	prefixes := []netip.Prefix{
 		netip.MustParsePrefix("0.0.0.0/1"),
 		netip.MustParsePrefix("128.0.0.0/1"),
-	} {
+	}
+	if plan.RoutePolicy == tunnel.RoutePolicyFullIPv4 {
+		prefixes = append(prefixes, netip.MustParsePrefix("::/1"), netip.MustParsePrefix("8000::/1"))
+	}
+	for _, prefix := range prefixes {
 		if route, found, err := checker.Routes.LookupExact(ctx, prefix); err != nil {
 			return err
 		} else if found {

@@ -11,6 +11,7 @@ import (
 	"github.com/b1rd33/nordmac/internal/authstate"
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/connection"
 	"github.com/b1rd33/nordmac/internal/connectplan"
 	"github.com/b1rd33/nordmac/internal/credentials"
 	"github.com/b1rd33/nordmac/internal/loginflow"
@@ -39,6 +40,13 @@ type Authentication interface {
 	Login(context.Context, []byte) (loginflow.Result, error)
 	CredentialStatus(context.Context) (authstate.Status, error)
 	LogoutLocal(context.Context) (authstate.LogoutResult, error)
+}
+
+type Connection interface {
+	Connect(context.Context, recommend.Query) (connection.Result, error)
+	Disconnect(context.Context) (connection.Result, error)
+	Reconnect(context.Context, bool) (connection.Result, error)
+	Status(context.Context) (connection.Result, error)
 }
 
 type Input struct {
@@ -75,8 +83,12 @@ func RunWithInput(ctx context.Context, args []string, input Input, stdout, stder
 		return runStatus(ctx, args[1:], stdout, stderr, backend)
 	case "logout":
 		return runLogout(ctx, args[1:], stdout, stderr, backend)
-	case "connect", "disconnect", "reconnect":
-		return unavailable(args[0], hasJSON(args[1:]), stdout, stderr)
+	case "connect":
+		return runConnect(ctx, args[1:], stdout, stderr, backend)
+	case "disconnect":
+		return runDisconnect(ctx, args[1:], stdout, stderr, backend)
+	case "reconnect":
+		return runReconnect(ctx, args[1:], stdout, stderr, backend)
 	default:
 		return fail(hasJSON(args[1:]), stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown command %q", args[0]))
 	}
@@ -88,8 +100,12 @@ type StatusResult struct {
 }
 
 type ConnectionStatus struct {
-	State  string `json:"state"`
-	Reason string `json:"reason"`
+	State     string `json:"state"`
+	Reason    string `json:"reason,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Server    string `json:"server,omitempty"`
+	Country   string `json:"country,omitempty"`
+	City      string `json:"city,omitempty"`
 }
 
 func runLogin(ctx context.Context, args []string, input Input, stdout, stderr io.Writer, backend Backend) int {
@@ -161,11 +177,18 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, bac
 	if err != nil {
 		return failAuthentication(jsonMode, stdout, stderr, err)
 	}
+	connectionStatus := ConnectionStatus{State: "unavailable", Reason: "tunnel runtime is unavailable"}
+	if connections, available := backend.(Connection); available {
+		current, connectionErr := connections.Status(ctx)
+		if connectionErr != nil {
+			connectionStatus = ConnectionStatus{State: "degraded", Reason: "connection state could not be inspected"}
+		} else {
+			connectionStatus = ConnectionStatus{State: current.State, SessionID: current.SessionID, Server: current.Server, Country: current.Country, City: current.City}
+		}
+	}
 	result := StatusResult{
 		Authentication: status,
-		Connection: ConnectionStatus{
-			State: "unavailable", Reason: "tunnel commands are not enabled",
-		},
+		Connection:     connectionStatus,
 	}
 	if jsonMode {
 		if err := output.JSONSuccess(stdout, result); err != nil {
@@ -174,11 +197,114 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, bac
 		}
 		return ExitOK
 	}
-	fmt.Fprintf(stdout, "authentication: %s\nconnection: unavailable\n", status.State)
+	fmt.Fprintf(stdout, "authentication: %s\nconnection: %s\n", status.State, connectionStatus.State)
 	if status.RepairNeeded {
 		fmt.Fprintln(stderr, "nordmac: warning: local credentials are incomplete; run login again or logout --local-only")
 	}
 	return ExitOK
+}
+
+func runConnect(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	query, help, err := parseRecommend(args)
+	if help {
+		fmt.Fprintln(stdout, "usage: nordmac connect <country> [--city <city>] [--server <server>] [--json]")
+		return ExitOK
+	}
+	if err != nil {
+		return fail(jsonMode, stdout, stderr, ExitUsage, "usage", err.Error())
+	}
+	connections, ok := backend.(Connection)
+	if !ok {
+		return unavailable("connect", jsonMode, stdout, stderr)
+	}
+	result, err := connections.Connect(ctx, query)
+	if err != nil {
+		return failConnection(jsonMode, stdout, stderr, err)
+	}
+	return writeConnectionResult(jsonMode, stdout, stderr, result)
+}
+
+func runDisconnect(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			fmt.Fprintln(stdout, "usage: nordmac disconnect [--json]")
+			return ExitOK
+		}
+		if arg != "--json" {
+			return fail(jsonMode, stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown disconnect argument %q", arg))
+		}
+	}
+	connections, ok := backend.(Connection)
+	if !ok {
+		return unavailable("disconnect", jsonMode, stdout, stderr)
+	}
+	result, err := connections.Disconnect(ctx)
+	if err != nil {
+		return failConnection(jsonMode, stdout, stderr, err)
+	}
+	return writeConnectionResult(jsonMode, stdout, stderr, result)
+}
+
+func runReconnect(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	fresh := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+		case "--fresh":
+			fresh = true
+		case "--help", "-h":
+			fmt.Fprintln(stdout, "usage: nordmac reconnect --fresh [--json]")
+			return ExitOK
+		default:
+			return fail(jsonMode, stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown reconnect argument %q", arg))
+		}
+	}
+	if !fresh {
+		return fail(jsonMode, stdout, stderr, ExitUsage, "fresh_required", "reconnect requires --fresh")
+	}
+	connections, ok := backend.(Connection)
+	if !ok {
+		return unavailable("reconnect", jsonMode, stdout, stderr)
+	}
+	result, err := connections.Reconnect(ctx, true)
+	if err != nil {
+		return failConnection(jsonMode, stdout, stderr, err)
+	}
+	return writeConnectionResult(jsonMode, stdout, stderr, result)
+}
+
+func writeConnectionResult(jsonMode bool, stdout, stderr io.Writer, result connection.Result) int {
+	if jsonMode {
+		if err := output.JSONSuccess(stdout, result); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	if result.Server == "" {
+		fmt.Fprintln(stdout, result.State)
+	} else {
+		fmt.Fprintf(stdout, "%s: %s (%s / %s)\n", result.State, result.Server, result.Country, result.City)
+	}
+	return ExitOK
+}
+
+func failConnection(jsonMode bool, stdout, stderr io.Writer, err error) int {
+	switch {
+	case errors.Is(err, connection.ErrNotAuthenticated):
+		return fail(jsonMode, stdout, stderr, ExitAuth, "not_authenticated", "run nordmac login before connecting")
+	case errors.Is(err, connection.ErrAlreadyConnected):
+		return fail(jsonMode, stdout, stderr, ExitBusy, "already_connected", "disconnect the current nordmac session first")
+	case errors.Is(err, connection.ErrBusy):
+		return fail(jsonMode, stdout, stderr, ExitBusy, "busy", "another nordmac credential or connection operation is active")
+	case errors.Is(err, connection.ErrHelper):
+		return fail(jsonMode, stdout, stderr, ExitPrivilege, "helper", "privileged tunnel operation failed; run status and disconnect to recover")
+	default:
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "connection", "connection operation failed")
+	}
 }
 
 func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
@@ -491,5 +617,8 @@ Authentication commands (require an authenticated packaged helper):
   status [--json]
   logout --local-only [--json]
 
-Planned but unavailable: connect, disconnect, reconnect`)
+Tunnel commands (administrator approval is requested internally):
+  connect <country> [--city <city>] [--server <server>] [--json]
+  disconnect [--json]
+  reconnect --fresh [--json]`)
 }

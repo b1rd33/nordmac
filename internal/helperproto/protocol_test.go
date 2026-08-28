@@ -3,9 +3,11 @@ package helperproto
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/b1rd33/nordmac/internal/tunnel"
 )
@@ -20,6 +22,7 @@ func protocolPlan() tunnel.Plan {
 		TunnelAddress:     netip.MustParsePrefix("10.5.0.2/32"),
 		TunnelMTU:         1420,
 		TunnelDNS:         []netip.Addr{netip.MustParseAddr("10.5.0.1")},
+		DNSService:        "synthetic-wifi",
 		RoutePolicy:       tunnel.RoutePolicyFullIPv4,
 		PeerFingerprint:   strings.Repeat("b", 64),
 	}
@@ -121,6 +124,63 @@ func TestResponseHasOnlyStableCodes(t *testing.T) {
 	response.ErrorCode = "external-error-text"
 	if err := EncodeResponse(&bytes.Buffer{}, response); err == nil {
 		t.Fatal("EncodeResponse unexpectedly accepted an arbitrary error code")
+	}
+}
+
+type blockingReader struct{}
+
+func (blockingReader) Read([]byte) (int, error) { select {} }
+
+func TestDecodeResponseDoesNotWaitForDaemonEOF(t *testing.T) {
+	response := Response{SchemaVersion: SchemaVersion, RequestID: strings.Repeat("d", 32), OK: true, State: tunnel.PhaseConnected}
+	var frame bytes.Buffer
+	if err := EncodeResponse(&frame, response); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := DecodeResponse(io.MultiReader(bytes.NewReader(frame.Bytes()), blockingReader{}))
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DecodeResponse waited for persistent daemon EOF")
+	}
+}
+
+func TestFramedConnectKeepsRequestAndSecretsSeparate(t *testing.T) {
+	plan := protocolPlan()
+	request := Request{
+		SchemaVersion: SchemaVersion, RequestID: strings.Repeat("c", 32), Operation: OperationConnect,
+		SessionID: plan.SessionID, OwnerUID: plan.OwnerUID, SecretChannelVersion: SecretChannelVersion, Plan: &plan,
+	}
+	secrets := DeviceSecrets{}
+	secrets.ClientPrivateKey[0] = 1
+	secrets.PeerPublicKey[0] = 2
+	var frame bytes.Buffer
+	if err := EncodeFrame(&frame, request, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	decoded, decodedSecrets, err := DecodeFrame(&frame)
+	if err != nil || decoded.Operation != OperationConnect || decodedSecrets.ClientPrivateKey[0] != 1 || decodedSecrets.PeerPublicKey[0] != 2 {
+		t.Fatalf("DecodeFrame = %#v %#v, %v", decoded, decodedSecrets, err)
+	}
+	decodedSecrets.Wipe()
+}
+
+func TestFramedStatusHasNoSecretTail(t *testing.T) {
+	request := Request{SchemaVersion: SchemaVersion, RequestID: strings.Repeat("c", 32), Operation: OperationStatus, SessionID: strings.Repeat("a", 32), OwnerUID: 501}
+	var frame bytes.Buffer
+	if err := EncodeFrame(&frame, request, nil); err != nil {
+		t.Fatal(err)
+	}
+	decoded, secrets, err := DecodeFrame(&frame)
+	if err != nil || decoded.Operation != OperationStatus || !allZero(secrets.ClientPrivateKey[:]) {
+		t.Fatalf("DecodeFrame = %#v, %v", decoded, err)
 	}
 }
 

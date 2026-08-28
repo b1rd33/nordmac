@@ -51,7 +51,7 @@ type RouteManager interface {
 // restoring before. A mismatch is an error, not permission to overwrite a
 // user's newer DNS configuration.
 type DNSManager interface {
-	Snapshot(context.Context) (DNSSnapshot, error)
+	Snapshot(context.Context, DNSConfig) (DNSSnapshot, error)
 	Apply(context.Context, DNSConfig) error
 	RestoreIfOwned(context.Context, DNSSnapshot, DNSConfig) error
 }
@@ -103,7 +103,7 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 	}
 	var dnsBefore DNSSnapshot
 	if plan.UsesDNS() {
-		dnsBefore, err = controller.DNS.Snapshot(ctx)
+		dnsBefore, err = controller.DNS.Snapshot(ctx, plan.DNSConfig())
 		if err != nil {
 			return Journal{}, fmt.Errorf("capture DNS pre-image: %w", err)
 		}
@@ -171,7 +171,9 @@ func (controller Controller) Connect(ctx context.Context, plan Plan) (journal Jo
 	}
 
 	for _, route := range plan.TunnelRoutes() {
-		route.Interface = device.Interface
+		if !route.Reject {
+			route.Interface = device.Interface
+		}
 		if err := controller.applyRoute(ctx, &journal, StepTunnelRoute, route); err != nil {
 			return fail(err)
 		}

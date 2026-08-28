@@ -79,11 +79,13 @@ func Build(server catalog.Server) (Manifest, error) {
 				"endpoint IPv4 /32 via captured physical gateway",
 				"0.0.0.0/1 via owned utun",
 				"128.0.0.0/1 via owned utun",
+				"::/1 rejected through lo0 while connected",
+				"8000::/1 rejected through lo0 while connected",
 			},
 			PeerPublicKeyFingerprint: hex.EncodeToString(digest[:]),
 		},
 		DNS:        []string{"103.86.96.100", "103.86.99.100"},
-		IPv6Policy: "unresolved: live test forbidden until IPv6 is tunneled or explicitly blocked and restored",
+		IPv6Policy: "block with two owned IPv6 reject routes; compare ownership before rollback",
 		Credential: CredentialContract{
 			Method: "GET", Path: CredentialPath, Authorization: "Bearer token read from an approved secret channel",
 			Status: "undocumented internal Nord contract; no request made by this plan",
@@ -91,9 +93,9 @@ func Build(server catalog.Server) (Manifest, error) {
 		ReferenceRepository: "https://github.com/NordSecurity/nordvpn-linux",
 		ReferenceCommit:     ReferenceCommit,
 		Blockers: []string{
-			"complete approval-gated production login and credential-provisioning validation",
-			"implement compare-before-restore DNS mutation for the active macOS service",
-			"choose and validate an explicit IPv6 leak policy",
+			"complete separately approved production login and credential-provisioning validation",
+			"validate compare-before-restore DNS mutation on a controlled macOS service",
+			"validate owned IPv6 reject routes and rollback on macOS",
 			"freeze a fresh server recommendation immediately before an approved bounded test",
 		},
 	}, nil
