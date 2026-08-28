@@ -48,6 +48,8 @@ jobs:
           cache: true
       - name: Build and validate native Keychain boundary
         run: scripts/test_native_keychain.sh
+      - name: Simulate login against loopback and an isolated Keychain
+        run: scripts/test_synthetic_login.sh
       - name: Build and inspect ad-hoc release snapshot
         run: |
           scripts/package_macos_release.sh ci "$RUNNER_TEMP/nordmac-dist"

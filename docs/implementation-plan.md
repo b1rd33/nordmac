@@ -237,6 +237,8 @@ Progress on 2026-08-28: `nordmac plan <country>` now produces a read-only candid
 
 The replacement native Security framework helper subsequently passed create/read/replace/read/delete/not-found against an explicit temporary Keychain. Its Go boundary keeps secret bytes out of argv, and a macOS CI job repeats the lifecycle. A separately approved local gate also passed with one synthetic item in the login Keychain under a fixed validation-only service; the harness authenticated the temporary package by path, owner, mode, and SHA-256 and proved deletion independently. The macOS release pipeline now builds matching arm64/x86_64 helpers, embeds each signed helper digest into its CLI, validates the archive relationship in CI, and fails tagged publication unless Developer ID and notarization credentials exist. No Developer ID identity is currently installed or configured, and production service targeting and Nord authentication remain incomplete, so the result does not enable login or authorize Nord authentication.
 
+The candidate login composition now also passes a synthetic loopback-to-temporary-Keychain gate. The application service provisions before storage, snapshots both credential kinds, restores them under a fresh cleanup context after partial failure, and reports incomplete rollback. The remaining command gate is bounded token input, single-writer locking, a fixed production service, status/logout recovery, and separate authorization for the real request.
+
 Decision gate C: if the API/credential contract is unstable, unsupported, or cannot be safely obtained, do not productize connect.
 
 ### Phase 4 — production lifecycle for personal use
