@@ -37,7 +37,7 @@ func TestRunRecommendFlagsAfterCountryJSON(t *testing.T) {
 		Query:   recommend.Query{Country: "de", City: "berlin"},
 		Country: catalog.Country{ID: 81, Name: "Germany", Code: "DE", Cities: []catalog.City{{ID: 2181458, Name: "Berlin", Slug: "berlin"}}},
 		Server: catalog.Server{
-			ID: 1001, Name: "Germany #1001", Hostname: "de1001.nordvpn.com", Load: 6, Status: "online",
+			ID: 1001, Name: "Germany #1001", Hostname: "de1001.nordvpn.com", Station: "203.0.113.11", Load: 6, Status: "online",
 			CountryID: 81, CountryName: "Germany", CountryCode: "DE", CityID: 2181458, CityName: "Berlin", CitySlug: "berlin",
 			WireGuardPubKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		},
@@ -61,6 +61,37 @@ func TestRunRecommendFlagsAfterCountryJSON(t *testing.T) {
 	}
 	if stdout.String() != string(want) {
 		t.Fatalf("JSON output changed\nwant: %s\n got: %s", want, stdout.String())
+	}
+}
+
+func TestRunPlanIsExplicitlyNotLiveReady(t *testing.T) {
+	backend := &fakeBackend{result: RecommendationResult{
+		Query:   recommend.Query{Country: "de"},
+		Country: catalog.Country{ID: 81, Name: "Germany", Code: "DE"},
+		Server: catalog.Server{
+			ID: 1001, Name: "Germany #1001", Hostname: "de1001.nordvpn.com", Station: "203.0.113.11",
+			Load: 6, Status: "online", CountryID: 81, CountryName: "Germany", CountryCode: "DE",
+			CityID: 2181458, CityName: "Berlin", CitySlug: "berlin",
+			WireGuardPubKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		},
+		Source: catalog.SourceNetwork, Fetched: time.Date(2026, 8, 28, 8, 0, 0, 0, time.UTC),
+	}}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"plan", "de", "--json"}, &stdout, &stderr, backend)
+	if exit != ExitOK || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Manifest struct {
+				Ready    bool     `json:"ready_for_live_test"`
+				Blockers []string `json:"blockers"`
+			} `json:"manifest"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data.Manifest.Ready || len(envelope.Data.Manifest.Blockers) != 4 {
+		t.Fatalf("output=%q err=%v envelope=%#v", stdout.String(), err, envelope)
 	}
 }
 

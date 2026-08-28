@@ -25,6 +25,7 @@ type Server struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	Hostname        string `json:"hostname"`
+	Station         string `json:"station"`
 	Load            int    `json:"load"`
 	Status          string `json:"status"`
 	CountryID       int64  `json:"country_id"`

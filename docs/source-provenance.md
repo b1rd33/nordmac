@@ -25,7 +25,7 @@ License:    GPL-3.0
 
 The comparison checked 229 unique, non-comment nordmac source lines of at least 60 characters against all Go files in that checkout. It found zero exact matches. Distinctive nordmac identifiers—including `CountriesResult`, `RecommendationResult`, `ResolveCountry`, `ResolveCity`, `validWireGuardKey`, `normalizeServer`, `SourceStaleCache`, `recommendationLimit`, `exactServerLimit`, `JSONSuccess`, and `JSONError`—also had zero matches.
 
-Phase 1's Go dependency graph contains only the standard library and nordmac's own packages. It does not import Nord code, WireGuard code, `wireguard-go`, or `wireguard-tools`.
+At the time of the Phase 1 comparison, its Go dependency graph contained only the standard library and nordmac's own packages. Later approval-gated harness work added the MIT-licensed `wireguard-go` dependency; no Nord source or GPL WireGuard tools were added.
 
 ## Phase 2 authentication-boundary audit
 
@@ -40,6 +40,10 @@ On 2026-08-27, the independently written files under `internal/tunnel`, `interna
 The transaction order, route prefixes, WireGuard key sizes, and `utun` constraints are interoperability and operating-system facts. No Nord or WireGuard implementation was copied. `wireguard-go` remains a reviewed future MIT-licensed dependency candidate; it has not been added to nordmac's module graph.
 
 This comparison is evidence of independent authorship, not a legal opinion. Future phases must repeat provenance and license review before adding any tunnel implementation or third-party dependency.
+
+## 2026-08-28 current-contract review
+
+The official Linux client was reviewed read-only at commit `d49b7d14715a80e320bae55944727612cac98c9f` to confirm factual interoperability parameters for `nordmac plan`: the credential endpoint path and bearer transport, response field name, tunnel address, WireGuard port and allowed IP, and default DNS addresses. `internal/connectplan` was independently written from those facts and contains no copied Nord control flow, implementation, or test data. The generated manifest identifies the pinned reference and remains explicitly blocked from live use.
 
 ## Names and affiliation
 

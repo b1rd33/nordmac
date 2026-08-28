@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strings"
@@ -196,6 +197,7 @@ type serverDTO struct {
 	ID           int64           `json:"id"`
 	Name         string          `json:"name"`
 	Hostname     string          `json:"hostname"`
+	Station      string          `json:"station"`
 	Load         int             `json:"load"`
 	Status       string          `json:"status"`
 	Locations    []locationDTO   `json:"locations"`
@@ -230,6 +232,10 @@ func (d serverDTO) convert() (catalog.Server, error) {
 	if d.Load < 0 || d.Load > 100 {
 		return catalog.Server{}, errors.New("load is outside 0..100")
 	}
+	station, err := netip.ParseAddr(strings.TrimSpace(d.Station))
+	if err != nil || !station.Is4() || !station.IsGlobalUnicast() || station.IsPrivate() {
+		return catalog.Server{}, errors.New("server station is not a public IPv4 address")
+	}
 	if len(d.Locations) == 0 {
 		return catalog.Server{}, errors.New("server has no location")
 	}
@@ -253,6 +259,7 @@ func (d serverDTO) convert() (catalog.Server, error) {
 		ID:              d.ID,
 		Name:            strings.TrimSpace(d.Name),
 		Hostname:        strings.ToLower(strings.TrimSpace(d.Hostname)),
+		Station:         station.String(),
 		Load:            d.Load,
 		Status:          strings.ToLower(strings.TrimSpace(d.Status)),
 		CountryID:       location.ID,

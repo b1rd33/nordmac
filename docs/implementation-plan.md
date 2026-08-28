@@ -233,6 +233,8 @@ Possible deliverables:
 
 Do not add retries, failover, daemonization, auto-start, a kill switch, or persistent installation in this phase. A successful single handshake validates feasibility; it does not yet establish production reliability.
 
+Progress on 2026-08-28: `nordmac plan <country>` now produces a read-only candidate manifest from the public catalog. It freezes the selected station IPv4, UDP port, peer-key fingerprint, tunnel address, split-route mutations, DNS servers, pinned upstream reference commit, and unresolved blockers. It always reports `ready_for_live_test: false` and neither reads credentials nor mutates the host. An isolated synthetic experiment also showed that the proposed `security(1)` write adapter cannot target an explicit temporary Keychain while reading the item secret from prompted stdin; the shipped login path remains disabled pending a native or signed Keychain boundary.
+
 Decision gate C: if the API/credential contract is unstable, unsupported, or cannot be safely obtained, do not productize connect.
 
 ### Phase 4 — production lifecycle for personal use

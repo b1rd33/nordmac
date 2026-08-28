@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/b1rd33/nordmac/internal/buildinfo"
 	"github.com/b1rd33/nordmac/internal/catalog"
+	"github.com/b1rd33/nordmac/internal/connectplan"
 	"github.com/b1rd33/nordmac/internal/output"
 	"github.com/b1rd33/nordmac/internal/recommend"
 )
@@ -43,11 +45,23 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, backend B
 		return runCountries(ctx, args[1:], stdout, stderr, backend)
 	case "recommend":
 		return runRecommend(ctx, args[1:], stdout, stderr, backend)
+	case "plan":
+		return runPlan(ctx, args[1:], stdout, stderr, backend)
 	case "login", "status", "connect", "disconnect", "reconnect":
 		return unavailable(args[0], hasJSON(args[1:]), stdout, stderr)
 	default:
 		return fail(hasJSON(args[1:]), stdout, stderr, ExitUsage, "usage", fmt.Sprintf("unknown command %q", args[0]))
 	}
+}
+
+type PlanResult struct {
+	Query    recommend.Query      `json:"query"`
+	Country  catalog.Country      `json:"country"`
+	Server   catalog.Server       `json:"server"`
+	Manifest connectplan.Manifest `json:"manifest"`
+	Source   catalog.Source       `json:"countries_source"`
+	Fetched  time.Time            `json:"countries_fetched_at"`
+	Warning  []string             `json:"warnings,omitempty"`
 }
 
 func runCountries(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
@@ -115,6 +129,46 @@ func runRecommend(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		fmt.Fprintf(stderr, "nordmac: warning: %s\n", warning)
 	}
 	fmt.Fprintf(stdout, "%s  %s / %s  load %d%%\n", result.Server.Hostname, result.Server.CountryName, result.Server.CityName, result.Server.Load)
+	return ExitOK
+}
+
+func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer, backend Backend) int {
+	jsonMode := hasJSON(args)
+	query, help, err := parseRecommend(args)
+	if help {
+		fmt.Fprintln(stdout, "usage: nordmac plan <country> [--city <city>] [--server <server>] [--json]")
+		return ExitOK
+	}
+	if err != nil {
+		return fail(jsonMode, stdout, stderr, ExitUsage, "usage", err.Error())
+	}
+
+	recommendation, err := backend.Recommend(ctx, query)
+	if err != nil {
+		return fail(jsonMode, stdout, stderr, classify(err), errorCode(err), err.Error())
+	}
+	manifest, err := connectplan.Build(recommendation.Server)
+	if err != nil {
+		return fail(jsonMode, stdout, stderr, ExitNetwork, "invalid_data", err.Error())
+	}
+	result := PlanResult{
+		Query: query, Country: recommendation.Country, Server: recommendation.Server, Manifest: manifest,
+		Source: recommendation.Source, Fetched: recommendation.Fetched, Warning: recommendation.Warning,
+	}
+	if jsonMode {
+		if err := output.JSONSuccess(stdout, result); err != nil {
+			fmt.Fprintf(stderr, "nordmac: write output: %v\n", err)
+			return ExitNetwork
+		}
+		return ExitOK
+	}
+	for _, warning := range result.Warning {
+		fmt.Fprintf(stderr, "nordmac: warning: %s\n", warning)
+	}
+	fmt.Fprintf(stdout, "candidate only — live test blocked\n%s (%s:%d)\n", result.Server.Hostname, result.Manifest.Endpoint.IPv4, result.Manifest.Endpoint.Port)
+	for _, blocker := range result.Manifest.Blockers {
+		fmt.Fprintf(stdout, "  blocked: %s\n", blocker)
+	}
 	return ExitOK
 }
 
@@ -219,9 +273,10 @@ func hasJSON(args []string) bool {
 func writeUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `usage: nordmac <command> [options]
 
-Phase 1 read-only commands:
+Read-only commands:
   countries [--json] [--refresh]
   recommend <country> [--city <city>] [--server <server>] [--json]
+  plan <country> [--city <city>] [--server <server>] [--json]
 
 Planned but unavailable: login, status, connect, disconnect, reconnect`)
 }
