@@ -4,6 +4,7 @@ import Security
 
 private let isolatedValidationService = "com.github.b1rd33.nordmac.validation"
 private let loginValidationService = "com.github.b1rd33.nordmac.validation.native"
+private let productionService = "com.github.b1rd33.nordmac"
 private let sessionPattern = try! NSRegularExpression(pattern: "^nordmac-keychain-native-validation-[a-f0-9]{32}$")
 
 private struct Target {
@@ -25,25 +26,34 @@ private func openKeychain(_ path: String, description: String) -> SecKeychain {
     return keychain
 }
 
+private func loginKeychainTarget(service: String) -> Target {
+    guard getuid() != 0, geteuid() != 0 else { fail("login Keychain access cannot run as root") }
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    guard home.hasPrefix("/Users/"), !home.contains("//"), !home.contains("/./"), !home.contains("/../") else {
+        fail("invalid login Keychain home")
+    }
+    do {
+        let attributes = try FileManager.default.attributesOfItem(atPath: home)
+        let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
+        guard owner == getuid() else { fail("login Keychain home ownership is invalid") }
+    } catch {
+        fail("inspect login Keychain home")
+    }
+    let path = home + "/Library/Keychains/login.keychain-db"
+    return Target(keychain: openKeychain(path, description: "login"), service: service)
+}
+
 private func validationTarget(_ arguments: [String]) -> Target {
-    if arguments.count == 4, arguments[3] == "--login-keychain-validation" {
-        guard getuid() != 0, geteuid() != 0 else { fail("login Keychain validation cannot run as root") }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard home.hasPrefix("/Users/"), !home.contains("//"), !home.contains("/./"), !home.contains("/../") else {
-            fail("invalid login Keychain home")
+    if arguments.count == 4 {
+        if arguments[3] == "--login-keychain-validation" {
+            return loginKeychainTarget(service: loginValidationService)
         }
-        do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: home)
-            let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
-            guard owner == getuid() else { fail("login Keychain home ownership is invalid") }
-        } catch {
-            fail("inspect login Keychain home")
+        if arguments[3] == "--login-keychain" {
+            return loginKeychainTarget(service: productionService)
         }
-        let path = home + "/Library/Keychains/login.keychain-db"
-        return Target(keychain: openKeychain(path, description: "login"), service: loginValidationService)
     }
     guard arguments.count == 5, arguments[3] == "--validation-keychain" else {
-        fail("production Keychain target is disabled")
+        fail("unsupported Keychain target")
     }
     let rawPath = arguments[4]
     guard rawPath.hasPrefix("/private/tmp/"),

@@ -1,5 +1,6 @@
 // Package nativekeychain is the Go boundary for the native macOS Keychain
-// helper. Only synthetic validation targets are enabled in this phase.
+// helper. Targets and credential account names are fixed rather than accepted
+// as arbitrary caller input.
 package nativekeychain
 
 import (
@@ -56,6 +57,15 @@ func NewLoginValidation(helper string) (Store, error) {
 		return Store{}, errors.New("native Keychain helper path must be absolute and canonical")
 	}
 	return Store{Runner: commandRunner{}, Helper: helper, Target: "login-validation"}, nil
+}
+
+// NewLogin targets the fixed production service in the current unprivileged
+// user's login Keychain. The public CLI does not construct this store yet.
+func NewLogin(helper string) (Store, error) {
+	if !filepath.IsAbs(helper) || filepath.Clean(helper) != helper {
+		return Store{}, errors.New("native Keychain helper path must be absolute and canonical")
+	}
+	return Store{Runner: commandRunner{}, Helper: helper, Target: "login"}, nil
 }
 
 func (store Store) Put(ctx context.Context, kind credentials.Kind, secret []byte) error {
@@ -137,7 +147,7 @@ func (store Store) validate(kind credentials.Kind) error {
 	if store.Target == "isolated" && store.Keychain == "" {
 		return errors.New("native Keychain validation store is incomplete")
 	}
-	if store.Target != "isolated" && store.Target != "login-validation" {
+	if store.Target != "isolated" && store.Target != "login-validation" && store.Target != "login" {
 		return errors.New("invalid native Keychain validation target")
 	}
 	return nil
@@ -146,6 +156,9 @@ func (store Store) validate(kind credentials.Kind) error {
 func (store Store) arguments(operation string, kind credentials.Kind) []string {
 	if store.Target == "login-validation" {
 		return []string{operation, string(kind), "--login-keychain-validation"}
+	}
+	if store.Target == "login" {
+		return []string{operation, string(kind), "--login-keychain"}
 	}
 	return []string{operation, string(kind), "--validation-keychain", store.Keychain}
 }

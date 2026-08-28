@@ -91,7 +91,7 @@ func Build(server catalog.Server) (Manifest, error) {
 		ReferenceRepository: "https://github.com/NordSecurity/nordvpn-linux",
 		ReferenceCommit:     ReferenceCommit,
 		Blockers: []string{
-			"package and authenticate the native helper, then validate its fixed login-Keychain target",
+			"complete approval-gated production login and credential-provisioning validation",
 			"implement compare-before-restore DNS mutation for the active macOS service",
 			"choose and validate an explicit IPv6 leak policy",
 			"freeze a fresh server recommendation immediately before an approved bounded test",

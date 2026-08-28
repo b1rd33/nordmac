@@ -47,7 +47,7 @@ The official Linux client was reviewed read-only at commit `d49b7d14715a80e320ba
 
 ## Native Keychain boundary
 
-The Swift helper under `native/keychain-helper` was independently written from Apple Security framework documentation for generic-password items, `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete`, `kSecUseKeychain`, and `kSecMatchSearchList`. It contains no Nord or third-party implementation. The helper is validation-only. It is absent from v0.1.0; the signed release pipeline can package it under `libexec` with its digest embedded in the matching CLI. Its login-Keychain mode is restricted to a fixed synthetic validation service; no production credential service is enabled.
+The Swift helper under `native/keychain-helper` was independently written from Apple Security framework documentation for generic-password items, `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete`, `kSecUseKeychain`, and `kSecMatchSearchList`. It contains no Nord or third-party implementation. It is absent from v0.1.0; the release pipeline can package it under `libexec` with its digest embedded in the matching CLI. The helper has separate compile-time services for isolated validation, synthetic login-Keychain validation, and production credentials. The production service and its two account names are fixed, cannot be supplied by a caller, remain disconnected from the public CLI, and have not been invoked in validation.
 
 ## Names and affiliation
 

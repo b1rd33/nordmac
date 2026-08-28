@@ -65,6 +65,22 @@ func TestLoginValidationUsesFixedTarget(t *testing.T) {
 	}
 }
 
+func TestProductionLoginUsesFixedTarget(t *testing.T) {
+	store, err := NewLogin("/private/tmp/nordmac-keychain-native-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	store.Runner = runner
+	if err := store.Put(context.Background(), credentials.AccessToken, []byte("synthetic-secret")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"put", "access-token", "--login-keychain"}
+	if !reflect.DeepEqual(runner.calls[0].args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.calls[0].args, want)
+	}
+}
+
 func TestCreateValidationUsesCreateOnlyOperation(t *testing.T) {
 	store, err := NewLoginValidation("/private/tmp/nordmac-keychain-native-helper")
 	if err != nil {

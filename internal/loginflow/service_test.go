@@ -26,6 +26,24 @@ type memoryStore struct {
 	failPutFor credentials.Kind
 }
 
+type fakeLocker struct {
+	err        error
+	releaseErr error
+	locks      int
+}
+
+func (locker *fakeLocker) Lock(context.Context) (func() error, error) {
+	locker.locks++
+	if locker.err != nil {
+		return nil, locker.err
+	}
+	return func() error { return locker.releaseErr }, nil
+}
+
+func service(provider Provisioner, store credentials.Store) Service {
+	return Service{Provisioner: provider, Store: store, Locker: &fakeLocker{}}
+}
+
 func newMemoryStore() *memoryStore { return &memoryStore{values: make(map[credentials.Kind][]byte)} }
 
 func (store *memoryStore) Put(_ context.Context, kind credentials.Kind, value []byte) error {
@@ -59,7 +77,7 @@ func TestLoginStoresProvisionedPair(t *testing.T) {
 	provider := &fakeProvisioner{result: nordauth.Provisioning{AccountID: 42, PrivateKey: []byte("synthetic-private-key")}}
 	store := newMemoryStore()
 	token := []byte("0123456789abcdef")
-	result, err := (Service{Provisioner: provider, Store: store}).Login(context.Background(), token)
+	result, err := service(provider, store).Login(context.Background(), token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +91,7 @@ func TestLoginStoresProvisionedPair(t *testing.T) {
 
 func TestLoginDoesNotWriteWhenProvisioningFails(t *testing.T) {
 	store := newMemoryStore()
-	_, err := (Service{Provisioner: &fakeProvisioner{err: nordauth.ErrUnauthorized}, Store: store}).Login(context.Background(), []byte("0123456789abcdef"))
+	_, err := service(&fakeProvisioner{err: nordauth.ErrUnauthorized}, store).Login(context.Background(), []byte("0123456789abcdef"))
 	if !errors.Is(err, nordauth.ErrUnauthorized) || len(store.values) != 0 {
 		t.Fatalf("error=%v values=%#v", err, store.values)
 	}
@@ -83,7 +101,7 @@ func TestLoginRollsBackNewTokenWhenPrivateKeyWriteFails(t *testing.T) {
 	store := newMemoryStore()
 	store.failPutFor = credentials.NordLynxPrivateKey
 	provider := &fakeProvisioner{result: nordauth.Provisioning{AccountID: 42, PrivateKey: []byte("synthetic-private-key")}}
-	_, err := (Service{Provisioner: provider, Store: store}).Login(context.Background(), []byte("0123456789abcdef"))
+	_, err := service(provider, store).Login(context.Background(), []byte("0123456789abcdef"))
 	if !errors.Is(err, ErrCredentialTransaction) || len(store.values) != 0 {
 		t.Fatalf("error=%v values=%#v", err, store.values)
 	}
@@ -95,8 +113,26 @@ func TestLoginRestoresExistingPairWhenReplacementFails(t *testing.T) {
 	store.values[credentials.NordLynxPrivateKey] = []byte("old-private-key")
 	store.failPutFor = credentials.NordLynxPrivateKey
 	provider := &fakeProvisioner{result: nordauth.Provisioning{AccountID: 42, PrivateKey: []byte("new-private-key")}}
-	_, err := (Service{Provisioner: provider, Store: store}).Login(context.Background(), []byte("new-token-abcdef"))
+	_, err := service(provider, store).Login(context.Background(), []byte("new-token-abcdef"))
 	if !errors.Is(err, ErrCredentialTransaction) || !errors.Is(err, ErrRollbackIncomplete) || !bytes.Equal(store.values[credentials.AccessToken], []byte("old-token")) || !bytes.Equal(store.values[credentials.NordLynxPrivateKey], []byte("old-private-key")) {
 		t.Fatalf("error=%v values=%#v", err, store.values)
+	}
+}
+
+func TestLoginFailsBeforeProvisioningWhenLockIsHeld(t *testing.T) {
+	provider := &fakeProvisioner{result: nordauth.Provisioning{AccountID: 42, PrivateKey: []byte("synthetic-private-key")}}
+	locker := &fakeLocker{err: errors.New("held")}
+	_, err := (Service{Provisioner: provider, Store: newMemoryStore(), Locker: locker}).Login(context.Background(), []byte("0123456789abcdef"))
+	if !errors.Is(err, ErrCredentialLock) || provider.seen != nil || locker.locks != 1 {
+		t.Fatalf("error=%v seen=%q locks=%d", err, provider.seen, locker.locks)
+	}
+}
+
+func TestLoginReportsReleaseFailure(t *testing.T) {
+	provider := &fakeProvisioner{result: nordauth.Provisioning{AccountID: 42, PrivateKey: []byte("synthetic-private-key")}}
+	locker := &fakeLocker{releaseErr: errors.New("synthetic unlock failure")}
+	result, err := (Service{Provisioner: provider, Store: newMemoryStore(), Locker: locker}).Login(context.Background(), []byte("0123456789abcdef"))
+	if !errors.Is(err, ErrCredentialLock) || result.AccountID != 0 {
+		t.Fatalf("result=%#v error=%v", result, err)
 	}
 }

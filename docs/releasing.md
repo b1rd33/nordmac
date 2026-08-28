@@ -15,7 +15,7 @@ Each future `nordmac_<version>_darwin_<architecture>.zip` contains:
 
 The packaging script hashes the already-signed helper and embeds that SHA-256 into the matching CLI at link time. `nordmac version --json` exposes the non-secret digest for installation verification. The future caller also resolves the installed CLI symlink, rejects a group/world-writable helper, and re-hashes the exact `libexec` sibling before use. Development builds have no accepted helper digest.
 
-The packaged helper still exposes only isolated and fixed-service synthetic validation targets. Packaging does not enable `nordmac login`, a production Keychain service, Nord authentication, or tunnel changes.
+The packaged helper exposes isolated validation, fixed-service login-Keychain validation, and a distinct fixed production service. The production target accepts only the two compiled credential account names and cannot accept an arbitrary service, account, or Keychain path. Packaging alone does not make `nordmac login` reachable, invoke the production target, authenticate with Nord, or change a tunnel.
 
 ## Apple prerequisites
 

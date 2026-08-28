@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/b1rd33/nordmac/internal/credentiallock"
 	"github.com/b1rd33/nordmac/internal/credentials"
 	"github.com/b1rd33/nordmac/internal/loginflow"
 	"github.com/b1rd33/nordmac/internal/nativekeychain"
@@ -103,6 +104,7 @@ func run() (retErr error) {
 	login := loginflow.Service{
 		Provisioner: nordauth.Client{BaseURL: server.URL, HTTP: server.Client()},
 		Store:       store,
+		Locker:      credentiallock.FileLocker{Directory: filepath.Join(directory, "lock")},
 	}
 	loginResult, err := login.Login(ctx, token)
 	if err != nil || loginResult.AccountID != 42 {

@@ -15,15 +15,21 @@ import (
 var (
 	ErrCredentialTransaction = errors.New("credential transaction failed")
 	ErrRollbackIncomplete    = errors.New("credential rollback incomplete")
+	ErrCredentialLock        = errors.New("credential lock failed")
 )
 
 type Provisioner interface {
 	Provision(context.Context, []byte) (nordauth.Provisioning, error)
 }
 
+type Locker interface {
+	Lock(context.Context) (func() error, error)
+}
+
 type Service struct {
 	Provisioner Provisioner
 	Store       credentials.Store
+	Locker      Locker
 }
 
 type Result struct {
@@ -35,10 +41,20 @@ type snapshot struct {
 	exists bool
 }
 
-func (service Service) Login(ctx context.Context, token []byte) (Result, error) {
-	if service.Provisioner == nil || service.Store == nil {
+func (service Service) Login(ctx context.Context, token []byte) (result Result, retErr error) {
+	if service.Provisioner == nil || service.Store == nil || service.Locker == nil {
 		return Result{}, errors.New("login service is incomplete")
 	}
+	release, err := service.Locker.Lock(ctx)
+	if err != nil {
+		return Result{}, ErrCredentialLock
+	}
+	defer func() {
+		if err := release(); err != nil {
+			result = Result{}
+			retErr = errors.Join(retErr, ErrCredentialLock)
+		}
+	}()
 	provisioning, err := service.Provisioner.Provision(ctx, token)
 	defer credentials.Wipe(provisioning.PrivateKey)
 	if err != nil {
